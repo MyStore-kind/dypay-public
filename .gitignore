@@ -59,3 +59,10 @@ _ext_backup/
 *.bak
 *.tmp
 *~
+
+# ====== 部署敏感配置（严禁入库） ======
+deploy/.env
+deploy/.env.local
+*.log
+data/
+backup/

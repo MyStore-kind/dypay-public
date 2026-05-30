@@ -1,0 +1,33 @@
+# ============================================================
+# jeepay-payment 多阶段构建（同 manager，端口 9216）
+# ============================================================
+FROM maven:3.9-eclipse-temurin-17 AS builder
+ENV MAVEN_OPTS="-Dmaven.repo.local=/root/.m2/repository -Dfile.encoding=UTF-8"
+RUN mkdir -p /root/.m2 && cat > /root/.m2/settings.xml <<'EOF'
+<settings>
+  <mirrors>
+    <mirror><id>aliyun</id><mirrorOf>central</mirrorOf>
+      <url>https://maven.aliyun.com/repository/public</url></mirror>
+  </mirrors>
+</settings>
+EOF
+WORKDIR /build
+COPY pom.xml ./
+COPY jeepay-core/pom.xml jeepay-core/
+COPY jeepay-components/ jeepay-components/
+COPY jeepay-service/ jeepay-service/
+COPY jeepay-payment/ jeepay-payment/
+RUN mvn -B -pl jeepay-payment -am dependency:go-offline || true
+COPY . .
+RUN mvn -B -pl jeepay-payment -am clean package -DskipTests
+
+FROM eclipse-temurin:17-jre
+ENV LANG=C.UTF-8 TZ=Asia/Shanghai
+ENV JAVA_OPTS="-XX:+UseG1GC -Xms512m -Xmx1g"
+EXPOSE 9216
+WORKDIR /jeepayhomes/service/app
+COPY --from=builder /build/jeepay-payment/target/jeepay-payment.jar ./jeepay-payment.jar
+VOLUME ["/jeepayhomes/service/logs", "/jeepayhomes/service/uploads"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD bash -c 'echo > /dev/tcp/localhost/9216'
+ENTRYPOINT ["sh","-c","exec java $JAVA_OPTS -jar jeepay-payment.jar --spring.config.additional-location=file:/jeepayhomes/service/app/application.yml"]

@@ -1,0 +1,56 @@
+# ============================================================
+# jeepay-manager 多阶段构建（Maven 编译 + JRE 17 运行）
+# 上下文：从项目根目录构建：docker build -f jeepay-manager/Dockerfile.multistage .
+# 在 docker-compose.yml 中已配置 build.context = ./jeepay-manager，
+# 若要启用多阶段构建，请使用 docker-compose.baota.yml 或调整 context 为项目根。
+# ============================================================
+
+# ---------- 构建阶段 ----------
+FROM maven:3.9-eclipse-temurin-17 AS builder
+
+ENV MAVEN_OPTS="-Dmaven.repo.local=/root/.m2/repository -Dfile.encoding=UTF-8"
+
+# 阿里云 Maven 镜像加速
+RUN mkdir -p /root/.m2 && cat > /root/.m2/settings.xml <<'EOF'
+<settings>
+  <mirrors>
+    <mirror>
+      <id>aliyun</id>
+      <mirrorOf>central</mirrorOf>
+      <url>https://maven.aliyun.com/repository/public</url>
+    </mirror>
+  </mirrors>
+</settings>
+EOF
+
+WORKDIR /build
+COPY pom.xml ./
+COPY jeepay-core/pom.xml jeepay-core/
+COPY jeepay-components/ jeepay-components/
+COPY jeepay-service/ jeepay-service/
+COPY jeepay-manager/ jeepay-manager/
+
+# 先解析依赖（利用缓存）
+RUN mvn -B -pl jeepay-manager -am dependency:go-offline || true
+
+COPY . .
+RUN mvn -B -pl jeepay-manager -am clean package -DskipTests
+
+# ---------- 运行阶段 ----------
+FROM eclipse-temurin:17-jre
+
+LABEL maintainer="JeePay International Payment"
+ENV LANG=C.UTF-8 TZ=Asia/Shanghai
+ENV JAVA_OPTS="-XX:+UseG1GC -Xms512m -Xmx1g"
+
+EXPOSE 9217
+WORKDIR /jeepayhomes/service/app
+
+COPY --from=builder /build/jeepay-manager/target/jeepay-manager.jar ./jeepay-manager.jar
+
+VOLUME ["/jeepayhomes/service/logs", "/jeepayhomes/service/uploads"]
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD bash -c 'echo > /dev/tcp/localhost/9217'
+
+ENTRYPOINT ["sh","-c","exec java $JAVA_OPTS -jar jeepay-manager.jar --spring.config.additional-location=file:/jeepayhomes/service/app/application.yml"]
