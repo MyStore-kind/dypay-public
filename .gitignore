@@ -1,0 +1,61 @@
+# ====== Java / Maven ======
+target/
+build/
+out/
+*.class
+*.jar
+*.war
+*.ear
+*.zip
+*.tar.gz
+*.rar
+hs_err_pid*
+
+# ====== IDE ======
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.settings/
+.project
+.classpath
+.factorypath
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ====== 日志与运行时 ======
+logs/
+*.log
+*.log.*
+
+# ====== 本地配置（敏感信息，不入库）======
+**/application-local.yml
+**/application-prod.yml
+**/secrets.yml
+**/.env
+**/.env.local
+
+# ====== Spring Boot ======
+**/HELP.md
+
+# ====== 前端（如以后加入 jeepay-ui）======
+node_modules/
+dist/
+.nuxt/
+.next/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ====== 数据库 ======
+*.db
+*.sqlite
+
+# ====== 临时与备份 ======
+_ext_backup/
+*.bak
+*.tmp
+*~
