@@ -100,6 +100,20 @@
             <artifactId>jeepay-sdk-java</artifactId>
         </dependency>
 
+        <!--
+          可观测性：暴露 /actuator/health、/actuator/prometheus 等端点。
+          仅引入基础设施层依赖，业务代码不修改；指标默认走 JVM/HTTP/Tomcat 通用维度，
+          自定义业务指标（风控命中/熔断次数等）可后续按需通过 MeterRegistry 注入。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
     </dependencies>
 
 

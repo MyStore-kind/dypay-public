@@ -112,6 +112,20 @@
             <artifactId>knife4j-openapi3-jakarta-spring-boot-starter</artifactId>
         </dependency>
 
+        <!--
+          可观测性（任务 #12）：actuator + Prometheus 指标导出。
+          商户端指标主要给 Grafana 看商户侧成功率/接口耗时；
+          /actuator/prometheus 不应对外暴露，需在 yml 中限制端点白名单。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
     </dependencies>
 
     <!-- 作为可执行jar -->

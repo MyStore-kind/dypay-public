@@ -1,0 +1,59 @@
+# Prometheus 配置样例（任务 #12）
+#
+# 启动方式（在项目根目录）：
+#   docker compose --profile observability up -d prometheus grafana
+#
+# 抓取目标：
+#   - jeepay-payment  : 172.20.0.21:9216  /actuator/prometheus
+#   - jeepay-manager  : 172.20.0.22:9217  /actuator/prometheus
+#   - jeepay-merchant : 172.20.0.23:9218  /actuator/prometheus
+#
+# 注意事项：
+#   1. 生产环境请将 /actuator/prometheus 通过 nginx 限制为 Prometheus 容器 IP 白名单
+#   2. 抓取间隔 15s 已足够风控/通道健康度场景，过短会显著增加 JVM 监控开销
+#   3. 如启用 basic_auth，需同步在 application.yml 中开启 actuator 安全
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: jeepay-international
+    env: ${ENV:-prod}
+
+scrape_configs:
+  - job_name: 'jeepay-payment'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['172.20.0.21:9216']
+        labels:
+          service: payment
+          tier: gateway
+
+  - job_name: 'jeepay-manager'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['172.20.0.22:9217']
+        labels:
+          service: manager
+          tier: backoffice
+
+  - job_name: 'jeepay-merchant'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['172.20.0.23:9218']
+        labels:
+          service: merchant
+          tier: portal
+
+  # Prometheus 自监控
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+# 告警规则文件（可选，按需启用 alertmanager）
+# rule_files:
+#   - /etc/prometheus/rules/*.yml
+#
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: ['alertmanager:9093']

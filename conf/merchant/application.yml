@@ -162,3 +162,38 @@ rocketmq:
     send-message-timeout: 10000
     retry-times-when-send-failed: 2
     retry-times-when-send-async-failed: 2
+
+# ============================================================
+# 可观测性（任务 #12）
+# 暴露 /actuator/health 与 /actuator/prometheus
+# 商户端：建议 /actuator/prometheus 仅允许内网 Prometheus 抓取
+# ============================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when-authorized
+    prometheus:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+# ============================================
+# 反风控相关配置（占位，实际从 DB 读取）
+# 实际运行时由 t_risk_threshold_config / t_sys_config 注入
+# ============================================
+risk:
+  enabled: ${RISK_CONTROL_ENABLED:true}    # 风控总开关
+  grayscale: ${RISK_GRAYSCALE:100}         # 灰度百分比 0-100

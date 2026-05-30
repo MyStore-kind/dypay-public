@@ -1,0 +1,239 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "国际支付反风控核心指标看板（任务 #12）。包含拒付率/投诉率/通道健康度/熔断次数/告警次数等关键 PromQL 查询。指标名以 risk_/channel_/circuit_/alert_ 前缀为约定，业务侧需通过 MeterRegistry 暴露同名 Counter/Gauge。",
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "uid": "jeepay-risk-control",
+  "title": "Jeepay 国际支付 - 反风控总览",
+  "tags": ["jeepay", "payment", "risk-control"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(up, service)",
+        "refresh": 1,
+        "includeAll": true,
+        "multi": true
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "业务核心指标",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "type": "stat",
+      "title": "拒付率 (chargeback rate, 24h)",
+      "description": "risk_chargeback_total / risk_pay_success_total",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 1 },
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.005 },
+              { "color": "red", "value": 0.01 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(risk_chargeback_total[24h])) / clamp_min(sum(increase(risk_pay_success_total[24h])), 1)",
+          "legendFormat": "拒付率",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "投诉率 (dispute rate, 24h)",
+      "description": "risk_dispute_total / risk_pay_success_total",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 1 },
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.005 },
+              { "color": "red", "value": 0.01 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(risk_dispute_total[24h])) / clamp_min(sum(increase(risk_pay_success_total[24h])), 1)",
+          "legendFormat": "投诉率",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "支付成功率 (1h)",
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 1 },
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.95 },
+              { "color": "green", "value": 0.98 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(risk_pay_success_total[1h])) / clamp_min(sum(increase(risk_pay_total[1h])), 1)",
+          "legendFormat": "成功率",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "风控拦截率 (1h)",
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 1 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(increase(risk_blocked_total[1h])) / clamp_min(sum(increase(risk_pay_total[1h])), 1)",
+          "legendFormat": "拦截率",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit" } }
+    },
+    {
+      "type": "row",
+      "title": "通道健康度 & 熔断",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 7 }
+    },
+    {
+      "type": "timeseries",
+      "title": "通道健康分 (channel_health_score)",
+      "description": "ChannelHealthSchedule 周期写入；100=最佳",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "channel_health_score{service=~\"$service\"}",
+          "legendFormat": "{{if_code}}-{{channel_account}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "熔断触发次数 (circuit_breaker_open_total, rate 5m)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum by (if_code) (rate(circuit_breaker_open_total[5m]))",
+          "legendFormat": "{{if_code}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "风控规则 & 告警",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 }
+    },
+    {
+      "type": "timeseries",
+      "title": "风控规则命中 TopN (rate 5m)",
+      "description": "按规则编号分组",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "topk(10, sum by (rule_code) (rate(risk_rule_hit_total[5m])))",
+          "legendFormat": "{{rule_code}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "告警次数 by channel (rate 5m)",
+      "description": "alert_sent_total{channel=telegram|email}",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 17 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum by (channel, severity) (rate(alert_sent_total[5m]))",
+          "legendFormat": "{{channel}}-{{severity}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "基础设施 / JVM",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 }
+    },
+    {
+      "type": "timeseries",
+      "title": "HTTP P99 延迟 (各服务)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 26 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, application, uri) (rate(http_server_requests_seconds_bucket{service=~\"$service\"}[5m])))",
+          "legendFormat": "{{application}} {{uri}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "JVM 堆使用率",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 26 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum by (application) (jvm_memory_used_bytes{area=\"heap\"}) / sum by (application) (jvm_memory_max_bytes{area=\"heap\"})",
+          "legendFormat": "{{application}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit" } }
+    }
+  ]
+}

@@ -165,3 +165,73 @@ rocketmq:
     send-message-timeout: 10000
     retry-times-when-send-failed: 2
     retry-times-when-send-async-failed: 2
+
+# ============================================================
+# 可观测性（任务 #12）
+# 暴露 /actuator/health 与 /actuator/prometheus
+# 支付网关为核心高并发链路，建议生产环境通过 management.server.port 独立端口
+# ============================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when-authorized
+    prometheus:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+# ============================================
+# 反风控相关配置（占位，实际从 DB 读取）
+# 实际运行时由 t_risk_threshold_config / t_sys_config 注入
+# ============================================
+risk:
+  enabled: ${RISK_CONTROL_ENABLED:true}    # 风控总开关
+  grayscale: ${RISK_GRAYSCALE:100}         # 灰度百分比 0-100
+
+# ============================================
+# 国际通道配置（占位，实际从 t_pay_interface_config 读取）
+# ============================================
+stripe:
+  webhook:
+    secret: ${STRIPE_WEBHOOK_SECRET:}              # Stripe Webhook 签名密钥
+    tolerance: ${STRIPE_WEBHOOK_TOLERANCE:300}     # 签名容忍时间（秒）
+
+paypal:
+  webhook:
+    id: ${PAYPAL_WEBHOOK_ID:}                                                # PayPal Webhook ID
+  api:
+    base-url: ${PAYPAL_API_BASE:https://api-m.sandbox.paypal.com}            # PayPal API 基础地址
+
+# ============================================
+# 汇率数据源（占位）
+# ============================================
+rate:
+  fixer:
+    api-key: ${FIXER_API_KEY:}                                                # Fixer.io API Key
+    base-url: ${FIXER_BASE_URL:https://api.apilayer.com/fixer}                # Fixer.io 接口地址
+  refresh-cron: "0 15 * * * ?"                                                # 汇率刷新 cron
+
+# ============================================
+# 风控告警通知（占位）
+# ============================================
+telegram:
+  bot:
+    token: ${TELEGRAM_BOT_TOKEN:}                  # Telegram Bot Token
+    chat-id: ${TELEGRAM_CHAT_ID:}                  # Telegram 通知 chat-id
+
+risk-alert:
+  enabled: ${RISK_ALERT_ENABLED:true}              # 风控告警开关
+  retry-times: ${RISK_ALERT_RETRY:3}               # 告警发送失败重试次数

@@ -12,3 +12,13 @@
 - 进行代码修改、文档更新、脚本补充时，默认遵守以上中文规范。
 - 生成提交记录时，优先使用清晰、简洁、可读的中文提交信息。
 - 编写注释时，优先写“为什么这么做”和“注意事项”，避免无意义注释。
+
+## Redis Key 规范
+
+项目内 Redis Key 统一规范如下（命名采用 `:` 分隔的领域前缀，便于按业务清理与监控）：
+
+- `risk:cb:mch:{mchNo}` — 商户级熔断标记。Value 为 JSON：`{reason, triggerAt, metrics}`。
+- `risk:cb:acct:{accountId}` — 通道账号级熔断标记。Value 结构同上，用于通道账号粒度的熔断隔离。
+- `risk:throttle:mch:{mchNo}` — 商户限流标记。命中后对该商户的请求进行降流处理。
+- `rate:{baseCurrency}:{targetCurrency}` — 汇率缓存。TTL 1h，由汇率拉取作业刷新。
+- `risk:scoring:lock` — 风险评分作业分布式锁。防止多实例并发执行评分作业。

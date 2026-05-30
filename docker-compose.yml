@@ -1,0 +1,313 @@
+# Jeepay 国际支付 - 本地/源码自构建 Compose 文件
+#
+# 启动命令：       docker compose up -d
+# 重新编译：       docker compose up --build
+# 重新创建：       docker compose up --force-recreate
+# 编译并覆盖：     docker compose up --build --force-recreate
+#
+# ============================================================
+# 新增模块说明（任务 #07-反风控/调度）
+# ============================================================
+# 以下 4 个 @Scheduled 调度类全部部署在 jeepay-manager 容器中，无需额外 service：
+#   - ChannelHealthSchedule         (通道健康度评分)
+#   - MerchantRiskScoreSchedule     (商户风控评分)
+#   - AgentProfitSettleSchedule     (代理利润结算)
+#   - CurrencyRateSchedule          (汇率同步, 依赖 Fixer.io)
+# 多副本部署时请使用 ShedLock / xxl-job 保证幂等，本 compose 默认单副本。
+#
+# Redis 用途：
+#   - DB 1: manager       (含熔断器状态 / 风控计数器 / 调度锁)
+#   - DB 2: merchant
+#   - DB 3: payment       (含通道选路缓存 / 限流计数)
+#
+# 敏感配置（建议放到 .env 文件，禁止入库）：
+#   STRIPE_API_KEY / STRIPE_WEBHOOK_SECRET
+#   PAYPAL_CLIENT_ID / PAYPAL_CLIENT_SECRET / PAYPAL_WEBHOOK_ID
+#   TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID
+#   SMTP_HOST / SMTP_USER / SMTP_PASS
+#   FIXER_API_KEY
+#   PROMETHEUS_BASIC_USER / PROMETHEUS_BASIC_PASS
+# ============================================================
+
+services:
+  mysql:
+    hostname: mysql
+    container_name: jeepay-mysql
+    restart: always
+    image: ${MYSQL_IMAGE:-swr.cn-south-1.myhuaweicloud.com/jeepay/mysql:8}
+    environment:
+      LANG: C.UTF-8
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:-rootroot}"
+      MYSQL_DATABASE: "jeepaydb"
+      MYSQL_USER: "jeepay"
+      MYSQL_PASSWORD: "${MYSQL_USER_PASSWORD:-jeepay}"
+    ports:
+      - "13306:3306"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    volumes:
+      - mysql:/var/lib/mysql
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      # 反风控/国际化补丁 SQL，按命名顺序执行
+      - ./sql/patch.sql:/docker-entrypoint-initdb.d/02-patch.sql:ro
+    networks:
+      jeepay:
+        ipv4_address: 172.20.0.10
+
+  rocketmq-namesrv:
+    platform: linux/amd64
+    image: ${ROCKETMQ_IMAGE:-swr.cn-south-1.myhuaweicloud.com/jeepay/rocketmq:5.3.1}
+    hostname: rocketmq-namesrv
+    container_name: jeepay-rocketmq-namesrv
+    restart: always
+    user: "0:0"
+    ports:
+      - "9876:9876"
+    environment:
+      HEAP_OPTS: "-Xms256m -Xmx256m -Xmn128m"
+    command: sh mqnamesrv
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/9876'"]
+      interval: 15s
+      timeout: 15s
+      retries: 10
+      start_period: 40s
+    volumes:
+      - rocketmq_namesrv_logs:/home/rocketmq/logs
+    networks:
+      jeepay:
+        ipv4_address: 172.20.0.11
+
+  rocketmq-broker:
+    platform: linux/amd64
+    image: ${ROCKETMQ_IMAGE:-swr.cn-south-1.myhuaweicloud.com/jeepay/rocketmq:5.3.1}
+    hostname: rocketmq-broker
+    container_name: jeepay-rocketmq-broker
+    restart: always
+    user: "0:0"
+    ports:
+      - "10909:10909"
+      - "10911:10911"
+      - "10912:10912"
+    environment:
+      NAMESRV_ADDR: rocketmq-namesrv:9876
+      JAVA_OPT_EXT: "-Xms512m -Xmx512m -Xmn256m"
+    command: sh mqbroker -n rocketmq-namesrv:9876 -c /home/rocketmq/rocketmq-5.3.1/conf/broker.conf
+    depends_on:
+      rocketmq-namesrv:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/10911'"]
+      interval: 15s
+      timeout: 15s
+      retries: 15
+      start_period: 120s
+    volumes:
+      - rocketmq_broker_logs:/home/rocketmq/logs
+      - rocketmq_broker_store:/home/rocketmq/store
+      - ./docker/rocketmq/broker/conf/broker.conf:/home/rocketmq/rocketmq-5.3.1/conf/broker.conf:ro
+    networks:
+      jeepay:
+        ipv4_address: 172.20.0.13
+
+  redis:
+    platform: linux/amd64
+    hostname: redis
+    container_name: jeepay-redis
+    restart: always
+    image: ${REDIS_IMAGE:-swr.cn-south-1.myhuaweicloud.com/jeepay/redis:6.2.14}
+    # 注意：熔断器状态/风控计数器持久化在此 Redis，重启需保留 RDB/AOF
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "${REDIS_MAXMEMORY:-512mb}", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    volumes:
+      - redis:/data
+    networks:
+      jeepay:
+        ipv4_address: 172.20.0.12
+
+  payment:
+    build:
+      context: ./jeepay-payment
+      dockerfile: Dockerfile
+    image: jeepay-payment:latest
+    hostname: payment
+    container_name: jeepay-payment
+    restart: always
+    ports:
+      - "9216:9216"
+    environment:
+      # ===== Stripe 配置（通道账号池可在 sys_config / pay_interface_config 覆盖） =====
+      STRIPE_API_KEY: "${STRIPE_API_KEY:-}"
+      STRIPE_WEBHOOK_SECRET: "${STRIPE_WEBHOOK_SECRET:-}"
+      # ===== PayPal 配置 =====
+      PAYPAL_CLIENT_ID: "${PAYPAL_CLIENT_ID:-}"
+      PAYPAL_CLIENT_SECRET: "${PAYPAL_CLIENT_SECRET:-}"
+      PAYPAL_WEBHOOK_ID: "${PAYPAL_WEBHOOK_ID:-}"
+      # ===== 风控开关（紧急回退用，sys_config 同名键优先） =====
+      RISK_CONTROL_ENABLED: "${RISK_CONTROL_ENABLED:-true}"
+      # ===== JVM =====
+      JAVA_OPTS: "${PAYMENT_JAVA_OPTS:--Xms512m -Xmx1024m}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -o /dev/null http://127.0.0.1:9216/actuator/health || curl -s -o /dev/null http://127.0.0.1:9216"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rocketmq-broker:
+        condition: service_healthy
+    volumes:
+      - ./logs/payment:/jeepayhomes/service/logs
+      - ./conf/payment/application.yml:/jeepayhomes/service/app/application.yml
+    networks:
+      jeepay:
+        ipv4_address: 172.20.0.21
+
+  manager:
+    build:
+      context: ./jeepay-manager
+      dockerfile: Dockerfile
+    image: jeepay-manager:latest
+    hostname: manager
+    # 调度类（ChannelHealthSchedule / MerchantRiskScoreSchedule /
+    # AgentProfitSettleSchedule / CurrencyRateSchedule）随 manager 启动
+    container_name: jeepay-manager
+    restart: always
+    ports:
+      - "9217:9217"
+    environment:
+      # ===== 调度总开关（单副本默认开，多副本只允许一台为 true） =====
+      SCHEDULE_ENABLED: "${SCHEDULE_ENABLED:-true}"
+      # ===== Fixer.io 汇率 API =====
+      FIXER_API_KEY: "${FIXER_API_KEY:-}"
+      FIXER_BASE_URL: "${FIXER_BASE_URL:-https://api.apilayer.com/fixer}"
+      # ===== Telegram 告警 =====
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
+      TELEGRAM_CHAT_ID: "${TELEGRAM_CHAT_ID:-}"
+      # ===== 邮件告警（SMTP） =====
+      SMTP_HOST: "${SMTP_HOST:-smtp.exmail.qq.com}"
+      SMTP_PORT: "${SMTP_PORT:-465}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASS: "${SMTP_PASS:-}"
+      SMTP_FROM: "${SMTP_FROM:-noreply@example.com}"
+      # ===== 风控开关（同 payment） =====
+      RISK_CONTROL_ENABLED: "${RISK_CONTROL_ENABLED:-true}"
+      JAVA_OPTS: "${MANAGER_JAVA_OPTS:--Xms512m -Xmx1024m}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -o /dev/null http://127.0.0.1:9217/actuator/health || curl -s -o /dev/null http://127.0.0.1:9217"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rocketmq-broker:
+        condition: service_healthy
+    volumes:
+      - ./logs/manager:/jeepayhomes/service/logs
+      - ./conf/manager/application.yml:/jeepayhomes/service/app/application.yml
+    networks:
+      jeepay:
+        ipv4_address: 172.20.0.22
+
+  merchant:
+    build:
+      context: ./jeepay-merchant
+      dockerfile: Dockerfile
+    image: jeepay-merchant:latest
+    hostname: merchant
+    container_name: jeepay-merchant
+    restart: always
+    ports:
+      - "9218:9218"
+    environment:
+      JAVA_OPTS: "${MERCHANT_JAVA_OPTS:--Xms512m -Xmx1024m}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -o /dev/null http://127.0.0.1:9218/actuator/health || curl -s -o /dev/null http://127.0.0.1:9218"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rocketmq-broker:
+        condition: service_healthy
+    volumes:
+      - ./logs/merchant:/jeepayhomes/service/logs
+      - ./conf/merchant/application.yml:/jeepayhomes/service/app/application.yml
+    networks:
+      jeepay:
+        ipv4_address: 172.20.0.23
+
+  # ============================================================
+  # 可观测性（可选，profile=observability 时启用）
+  #   docker compose --profile observability up -d
+  # ============================================================
+  prometheus:
+    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.54.1}
+    container_name: jeepay-prometheus
+    profiles: ["observability"]
+    restart: always
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      jeepay:
+        ipv4_address: 172.20.0.41
+
+  grafana:
+    image: ${GRAFANA_IMAGE:-grafana/grafana:11.2.0}
+    container_name: jeepay-grafana
+    profiles: ["observability"]
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: "${GRAFANA_ADMIN_USER:-admin}"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-admin}"
+    volumes:
+      - ./docker/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      jeepay:
+        ipv4_address: 172.20.0.42
+
+networks:
+  jeepay:
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  mysql:
+  redis:
+  rocketmq_namesrv_logs:
+  rocketmq_broker_logs:
+  rocketmq_broker_store:
+  prometheus_data:
+  grafana_data:

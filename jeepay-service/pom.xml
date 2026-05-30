@@ -50,6 +50,13 @@
       <scope>provided</scope>
     </dependency>
 
+    <!-- Spring Mail：为风险告警的邮件渠道提供 JavaMailSender -->
+    <!-- 为什么用 starter：自动装配 JavaMailSenderImpl，运维只需配 SMTP 即可使用 -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-mail</artifactId>
+    </dependency>
+
   </dependencies>
 
   <build>
