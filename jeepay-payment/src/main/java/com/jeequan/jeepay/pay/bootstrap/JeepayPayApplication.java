@@ -32,6 +32,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.MediaType;
+import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -49,6 +50,7 @@ import java.util.Arrays;
  **/
 @SpringBootApplication
 @EnableScheduling
+@EnableAsync  // 国际四方扩展：使 PaySuccessEventListener 的 @Async 生效（异步分润计算）
 @MapperScan("com.jeequan.jeepay.service.mapper")    //Mybatis mapper接口路径
 @ComponentScan(basePackages = "com.jeequan.jeepay.*")   //由于MainApplication没有在项目根目录， 需要配置basePackages属性使得成功扫描所有Spring组件；
 @Configuration

@@ -3,7 +3,6 @@
  */
 package com.jeequan.jeepay.pay.channel.paypal.payway;
 
-import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import com.jeequan.jeepay.core.entity.PayOrder;
 import com.jeequan.jeepay.pay.channel.paypal.PayPalKit;
@@ -12,10 +11,14 @@ import com.jeequan.jeepay.pay.model.MchAppConfigContext;
 import com.jeequan.jeepay.pay.rqrs.AbstractRS;
 import com.jeequan.jeepay.pay.rqrs.msg.ChannelRetMsg;
 import com.jeequan.jeepay.pay.rqrs.payorder.UnifiedOrderRQ;
+import com.paypal.sdk.models.LinkDescription;
+import com.paypal.sdk.models.Order;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
 /**
- * PayPal 钱包支付
+ * PayPal 钱包支付（基于官方 SDK）
  *
  * 业务流程：
  * 1. 后端调用 PayPal Orders v2 API 创建订单，获取 approve link
@@ -36,32 +39,31 @@ public class PayPalWallet extends PayPalPaymentService {
         String returnUrl = rq.getReturnUrl() == null ? "" : rq.getReturnUrl();
         String cancelUrl = returnUrl;
 
-        // 币种从订单读取（PayOrder 已扩展 currency 字段，未设置时默认 USD）
+        // 币种（默认 USD）
         String currency = payOrder.getCurrency() == null ? "USD" : payOrder.getCurrency();
 
-        JSONObject order = PayPalKit.createOrder(config, payOrder.getAmount(), currency,
+        Order order = PayPalKit.createOrder(config, payOrder.getAmount(), currency,
                 payOrder.getPayOrderId(), returnUrl, cancelUrl);
 
         // 提取 approve link
         String approveLink = null;
-        JSONArray links = order.getJSONArray("links");
+        List<LinkDescription> links = order.getLinks();
         if (links != null) {
-            for (int i = 0; i < links.size(); i++) {
-                JSONObject l = links.getJSONObject(i);
-                if ("approve".equalsIgnoreCase(l.getString("rel"))) {
-                    approveLink = l.getString("href");
+            for (LinkDescription l : links) {
+                if ("approve".equalsIgnoreCase(l.getRel())) {
+                    approveLink = l.getHref();
                     break;
                 }
             }
         }
 
         PayPalWalletOrderRS rs = new PayPalWalletOrderRS();
-        rs.setPaypalOrderId(order.getString("id"));
+        rs.setPaypalOrderId(order.getId());
         rs.setApproveUrl(approveLink);
 
         ChannelRetMsg msg = new ChannelRetMsg();
         msg.setChannelState(ChannelRetMsg.ChannelState.WAITING);
-        msg.setChannelOrderId(order.getString("id"));
+        msg.setChannelOrderId(order.getId());
         rs.setChannelRetMsg(msg);
         return rs;
     }

@@ -103,6 +103,14 @@
             <version>26.8.0</version>
         </dependency>
 
+        <!-- PayPal 官方 Server SDK https://github.com/paypal/PayPal-Server-SDKs -->
+        <!-- 为什么：国际四方改造接入 PayPal 通道。官方 SDK 提供 OrdersController/PaymentsController 与签名校验工具 -->
+        <dependency>
+            <groupId>com.paypal.sdk</groupId>
+            <artifactId>paypal-server-sdk</artifactId>
+            <version>1.1.0</version>
+        </dependency>
+
         <!-- 生成二维码工具包 zxing -->
         <dependency>
             <groupId>com.google.zxing</groupId>

@@ -10,10 +10,11 @@ import com.jeequan.jeepay.pay.channel.IRefundService;
 import com.jeequan.jeepay.pay.model.MchAppConfigContext;
 import com.jeequan.jeepay.pay.rqrs.msg.ChannelRetMsg;
 import com.jeequan.jeepay.pay.rqrs.refund.RefundOrderRQ;
+import com.paypal.sdk.models.Refund;
 import org.springframework.stereotype.Service;
 
 /**
- * PayPal 退款服务
+ * PayPal 退款服务（基于官方 SDK）
  *
  * 注意：PayPal 退款基于 capture_id，不是 order_id
  * 我们在订单成功时把 capture_id 存入 PayOrder.channelOrderNo
@@ -47,15 +48,17 @@ public class PayPalRefundService implements IRefundService {
 
         // 原渠道订单号即 capture_id
         String currency = payOrder.getCurrency() == null ? "USD" : payOrder.getCurrency();
-        JSONObject result = PayPalKit.refund(config, payOrder.getChannelOrderNo(),
+        Refund result = PayPalKit.refund(config, payOrder.getChannelOrderNo(),
                 refundOrder.getRefundAmount(),
                 currency,
                 refundOrder.getRefundOrderId());
 
         ChannelRetMsg ret = new ChannelRetMsg();
-        ret.setChannelOrderId(result.getString("id"));
-        String status = result.getString("status");
-        switch (status == null ? "" : status) {
+        ret.setChannelOrderId(result.getId());
+
+        // Refund 状态：COMPLETED / FAILED / CANCELLED / PENDING
+        String status = result.getStatus() == null ? "" : result.getStatus().name();
+        switch (status) {
             case "COMPLETED":
                 ret.setChannelState(ChannelRetMsg.ChannelState.CONFIRM_SUCCESS);
                 break;
@@ -72,7 +75,7 @@ public class PayPalRefundService implements IRefundService {
 
     @Override
     public ChannelRetMsg query(RefundOrder refundOrder, MchAppConfigContext mchAppConfigContext) throws Exception {
-        // 占位：可调用 GET /v2/payments/refunds/{refundId} 查询
+        // 占位：可调用 PaymentsController.refundsGet(refundId) 查询
         return null;
     }
 }
