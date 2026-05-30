@@ -25,6 +25,7 @@ import lombok.EqualsAndHashCode;
 import lombok.experimental.Accessors;
 
 import java.util.Date;
+import java.math.BigDecimal;
 
 /**
  * <p>
@@ -215,5 +216,18 @@ public class RefundOrder extends BaseModel {
      */
     @Schema(title = "updatedAt", description = "更新时间")
     private Date updatedAt;
+
+    /**
+     * 退款冻结汇率（继承自原支付订单的 frozenRate）
+     * 为什么这么做：退款必须按原下单汇率折算，否则汇率波动会造成对账差异。
+     */
+    @Schema(title = "frozenRate", description = "退款冻结汇率")
+    private BigDecimal frozenRate;
+
+    /**
+     * 基准币种（与原支付订单一致）
+     */
+    @Schema(title = "baseCurrency", description = "基准币种")
+    private String baseCurrency;
 
 }

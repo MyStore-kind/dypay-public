@@ -40,10 +40,17 @@ public class ChargebackRecord extends BaseModel implements Serializable {
     // 状态常量
     public static final String STATE_RECEIVED = "received";       // 收到拒付通知
     public static final String STATE_UNDER_REVIEW = "under_review"; // 准备证据中
+    public static final String STATE_PENDING = "pending";          // 待处理（兼容 Stripe early_fraud_warning 等）
+    public static final String STATE_SUBMITTED = "submitted";      // 已提交证据（与 RESPONDED 同义，新流程使用）
     public static final String STATE_RESPONDED = "responded";      // 已提交证据
+    public static final String STATE_ACCEPTED = "accepted";        // 通道方受理
     public static final String STATE_WON = "won";                  // 申诉胜
     public static final String STATE_LOST = "lost";                // 申诉败
     public static final String STATE_EXPIRED = "expired";          // 超时未应
+
+    // 争议类型：用于区分正式拒付与投诉，便于分流统计
+    public static final String DISPUTE_TYPE_CHARGEBACK = "CHARGEBACK"; // 正式拒付
+    public static final String DISPUTE_TYPE_COMPLAINT = "COMPLAINT";   // 投诉/早期欺诈预警
 
     @TableId(value = "id", type = IdType.AUTO)
     private Long id;
@@ -59,6 +66,19 @@ public class ChargebackRecord extends BaseModel implements Serializable {
     private String chargebackReasonCode;
     private String chargebackReasonDesc;
     private String chargebackType;
+
+    /**
+     * 争议类型：CHARGEBACK 正式拒付，COMPLAINT 投诉（含 Stripe early_fraud_warning、PayPal complaint）。
+     * 注意：分流统计时按该字段拆分两种口径，避免投诉影响拒付率
+     */
+    private String disputeType;
+
+    /**
+     * 证据快照（JSON 字符串）。
+     * 包含：IP、UA、设备、邮箱、3DS 状态、商品信息、客服记录等。
+     * 设计为 JSON 字符串便于后续扩展，不在实体直接展开
+     */
+    private String evidenceSnapshot;
 
     private String state;
     private Date evidenceDueAt;

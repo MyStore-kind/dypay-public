@@ -184,4 +184,12 @@ public class MchInfo extends BaseModel implements Serializable {
     @Schema(title = "autoSuspendEnabled", description = "超阈值自动暂停")
     private Byte autoSuspendEnabled;
 
+    /** 商户自定义拒付率告警阈值(%)，与 t_risk_threshold_config 中全局值二选一 */
+    @Schema(title = "chargebackAlertThreshold", description = "拒付率告警阈值(%)")
+    private java.math.BigDecimal chargebackAlertThreshold;
+
+    /** 商户自定义拒付率自动暂停阈值(%) */
+    @Schema(title = "autoSuspendThreshold", description = "拒付率自动暂停阈值(%)")
+    private java.math.BigDecimal autoSuspendThreshold;
+
 }

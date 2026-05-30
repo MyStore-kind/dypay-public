@@ -290,4 +290,34 @@ public class PayOrder extends BaseModel implements Serializable {
     @Schema(title = "updatedAt", description = "更新时间")
     private Date updatedAt;
 
+    /**
+     * 订单冻结汇率快照（基准币种 -> 订单币种）
+     * 为什么这么做：下单瞬间锁定汇率，避免退款 / 对账时因汇率波动导致差异。
+     * 注意事项：精度 8 位小数，与 t_currency_rate.rate 保持一致。
+     */
+    @Schema(title = "frozenRate", description = "订单冻结汇率快照")
+    private BigDecimal frozenRate;
+
+    /**
+     * 基准币种（冻结汇率的参照系，通常为商户结算币种或 USD）
+     */
+    @Schema(title = "baseCurrency", description = "基准币种")
+    private String baseCurrency;
+
+    // ============ 反风控扩展字段 ============
+    // 注意：这些字段对应 t_pay_order 的 risk_score / risk_action / account_id 列
+    // 由 risk_control_patch.sql 创建，下单钩子写入
+
+    /** 风控评分 0-100（数值越大风险越高） */
+    @Schema(title = "riskScore", description = "风控评分")
+    private Integer riskScore;
+
+    /** 风控动作：pass / 3ds / reject */
+    @Schema(title = "riskAction", description = "风控动作")
+    private String riskAction;
+
+    /** 路由选中的通道账号 ID（多账号池场景） */
+    @Schema(title = "accountId", description = "通道账号ID")
+    private String accountId;
+
 }

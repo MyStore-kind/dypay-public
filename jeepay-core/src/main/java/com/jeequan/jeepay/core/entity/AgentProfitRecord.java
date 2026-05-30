@@ -116,4 +116,24 @@ public class AgentProfitRecord extends BaseModel implements Serializable {
      */
     @Schema(title = "settleDate", description = "结算日期")
     private Date settleDate;
+
+    /**
+     * 关联结算单ID（任务 #3 新增）
+     * 为什么：建立结算单→明细的反向追溯，对账时可由结算单号查到所有原始分润记录
+     */
+    @Schema(title = "settleId", description = "关联结算单ID")
+    private Long settleId;
+
+    /**
+     * 创建时间
+     * 为什么：结算作业按 created_at 划窗口（T1/T7/T30），无此字段无法按周期聚合
+     */
+    @Schema(title = "createdAt", description = "创建时间")
+    private Date createdAt;
+
+    /**
+     * 更新时间
+     */
+    @Schema(title = "updatedAt", description = "更新时间")
+    private Date updatedAt;
 }
