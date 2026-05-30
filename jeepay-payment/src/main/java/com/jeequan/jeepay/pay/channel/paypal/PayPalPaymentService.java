@@ -25,7 +25,8 @@ public class PayPalPaymentService extends AbstractPaymentService {
 
     @Override
     public boolean isSupport(String wayCode) {
-        return PayPalConfig.WAY_CODE_WALLET.equals(wayCode);
+        return PayPalConfig.WAY_CODE_WALLET.equals(wayCode)
+                || PayPalConfig.WAY_CODE_CARD.equals(wayCode);
     }
 
     @Override

@@ -72,10 +72,12 @@ public class StripeKit {
      * @param payOrderId    JeePay 订单号
      * @param mchNo     商户号
      * @param description   订单描述
+     * @param forceThreeDS  是否强制 3DS（风控决策）
      * @return PaymentIntent 对象
      */
     public static PaymentIntent createPaymentIntent(JSONObject config, Long amount, String currency,
-                                                     String payOrderId, String mchNo, String description) {
+                                                     String payOrderId, String mchNo, String description,
+                                                     boolean forceThreeDS) {
         setApiKey(config);
         try {
             // 元数据：在 Stripe 侧记录 JeePay 订单号，便于 Webhook 回查
@@ -83,11 +85,33 @@ public class StripeKit {
             metadata.put(StripeConfig.METADATA_PAY_ORDER_ID, payOrderId);
             metadata.put(StripeConfig.METADATA_MCH_NO, mchNo);
 
+            // 关键：根据风控决策动态切换 3DS 策略
+            // forceThreeDS=true：request_three_d_secure="any"  -> 总是要求 3DS（高风险订单）
+            //   作用：把拒付责任转移给发卡行（liability shift），保护商户资金
+            // forceThreeDS=false：request_three_d_secure="automatic" -> Stripe Radar 智能判断
+            //   作用：低风险订单不打扰用户，提升转化率
+            String threeDSMode = forceThreeDS ? "any" : "automatic";
+
+            PaymentIntentCreateParams.PaymentMethodOptions.Card.RequestThreeDSecure threeDSEnum =
+                    forceThreeDS
+                            ? PaymentIntentCreateParams.PaymentMethodOptions.Card.RequestThreeDSecure.ANY
+                            : PaymentIntentCreateParams.PaymentMethodOptions.Card.RequestThreeDSecure.AUTOMATIC;
+
+            PaymentIntentCreateParams.PaymentMethodOptions.Card cardOpts =
+                    PaymentIntentCreateParams.PaymentMethodOptions.Card.builder()
+                            .setRequestThreeDSecure(threeDSEnum)
+                            .build();
+
             PaymentIntentCreateParams params = PaymentIntentCreateParams.builder()
                     .setAmount(amount)
                     .setCurrency(currency.toLowerCase())
                     .setDescription(description)
                     .putAllMetadata(metadata)
+                    .setPaymentMethodOptions(
+                            PaymentIntentCreateParams.PaymentMethodOptions.builder()
+                                    .setCard(cardOpts)
+                                    .build()
+                    )
                     // 自动确认：使用 Stripe Elements 在前端完成卡信息收集与确认
                     .setAutomaticPaymentMethods(
                             PaymentIntentCreateParams.AutomaticPaymentMethods.builder()
@@ -95,11 +119,20 @@ public class StripeKit {
                                     .build()
                     )
                     .build();
+            logger.info("[Stripe] 创建 PaymentIntent payOrderId={}, threeDSMode={}", payOrderId, threeDSMode);
             return PaymentIntent.create(params);
         } catch (StripeException e) {
             logger.error("[Stripe] 创建 PaymentIntent 失败, payOrderId={}", payOrderId, e);
             throw new BizException("Stripe 下单失败：" + e.getMessage());
         }
+    }
+
+    /**
+     * 兼容旧调用：未指定 3DS 时默认走 automatic
+     */
+    public static PaymentIntent createPaymentIntent(JSONObject config, Long amount, String currency,
+                                                     String payOrderId, String mchNo, String description) {
+        return createPaymentIntent(config, amount, currency, payOrderId, mchNo, description, false);
     }
 
     /**

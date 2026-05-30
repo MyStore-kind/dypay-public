@@ -60,6 +60,25 @@ public class StripeRefundService implements IRefundService {
      */
     @Override
     public ChannelRetMsg refund(RefundOrderRQ bizRQ, RefundOrder refundOrder, PayOrder payOrder, MchAppConfigContext mchAppConfigContext) throws Exception {
+
+        // 0. 幂等性校验：避免对已完成退款再次调用 Stripe API
+        // 为什么这么做：
+        //   - Webhook 重试、调用方失败重试都可能多次进入 refund()
+        //   - Stripe 虽然 RefundCreateParams 没有内建幂等键参数，但 channel_order_no 已记录
+        //   - 状态已是 SUCCESS/FAIL 时直接返回，避免重复扣款（如多次部分退款叠加）
+        if (refundOrder.getState() == RefundOrder.STATE_SUCCESS) {
+            ChannelRetMsg ret = new ChannelRetMsg();
+            ret.setChannelState(ChannelRetMsg.ChannelState.CONFIRM_SUCCESS);
+            ret.setChannelOrderId(refundOrder.getChannelOrderNo());
+            return ret;
+        }
+        if (refundOrder.getState() == RefundOrder.STATE_FAIL) {
+            ChannelRetMsg ret = new ChannelRetMsg();
+            ret.setChannelState(ChannelRetMsg.ChannelState.CONFIRM_FAIL);
+            ret.setChannelErrMsg("退款单已是失败状态");
+            return ret;
+        }
+
         // 1. 解析渠道配置
         String configStr = mchAppConfigContext
                 .getNormalMchParamsByIfCode(getIfCode())

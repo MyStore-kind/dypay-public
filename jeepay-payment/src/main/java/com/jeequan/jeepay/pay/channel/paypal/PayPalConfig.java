@@ -38,6 +38,14 @@ public class PayPalConfig {
     public static final String EVENT_CAPTURE_COMPLETED = "PAYMENT.CAPTURE.COMPLETED";
     public static final String EVENT_CAPTURE_DENIED = "PAYMENT.CAPTURE.DENIED";
     public static final String EVENT_CAPTURE_REFUNDED = "PAYMENT.CAPTURE.REFUNDED";
+    /** 拒付事件（CUSTOMER.DISPUTE.* / RISK.DISPUTE.*） */
+    public static final String EVENT_DISPUTE_CREATED = "CUSTOMER.DISPUTE.CREATED";
+    public static final String EVENT_DISPUTE_RESOLVED = "CUSTOMER.DISPUTE.RESOLVED";
+    public static final String EVENT_DISPUTE_UPDATED = "CUSTOMER.DISPUTE.UPDATED";
+    public static final String EVENT_RISK_DISPUTE_CREATED = "RISK.DISPUTE.CREATED";
+
+    /** 支付方式 - 新增信用卡（Advanced Card Processing） */
+    public static final String WAY_CODE_CARD = "paypal_card";
 
     /** custom_id 用途：在 PayPal 侧关联 JeePay 订单号 */
     public static final String CUSTOM_ID_KEY = "jeepay_order_id";

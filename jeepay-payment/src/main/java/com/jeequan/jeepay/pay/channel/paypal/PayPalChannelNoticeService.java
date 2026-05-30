@@ -5,13 +5,17 @@ package com.jeequan.jeepay.pay.channel.paypal;
 
 import com.alibaba.fastjson.JSONObject;
 import com.jeequan.jeepay.core.entity.PayOrder;
+import com.jeequan.jeepay.core.entity.RefundOrder;
 import com.jeequan.jeepay.pay.channel.IChannelNoticeService;
 import com.jeequan.jeepay.pay.model.MchAppConfigContext;
 import com.jeequan.jeepay.pay.rqrs.msg.ChannelRetMsg;
+import com.jeequan.jeepay.service.impl.ChargebackService;
+import com.jeequan.jeepay.service.impl.RefundOrderService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.commons.lang3.tuple.MutablePair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -25,16 +29,24 @@ import java.util.Map;
 /**
  * PayPal Webhook 处理
  *
- * 关注事件：
- *  CHECKOUT.ORDER.APPROVED       买家批准（尚未捕获资金）
- *  PAYMENT.CAPTURE.COMPLETED     资金到账（最终成功）
- *  PAYMENT.CAPTURE.DENIED        资金捕获失败
- *  PAYMENT.CAPTURE.REFUNDED      退款完成
+ * 已接入事件：
+ *  - CHECKOUT.ORDER.APPROVED           买家批准（尚未捕获资金）
+ *  - PAYMENT.CAPTURE.COMPLETED         资金到账（最终成功）
+ *  - PAYMENT.CAPTURE.DENIED            资金捕获失败
+ *  - PAYMENT.CAPTURE.REFUNDED          退款完成（回写 RefundOrder）
+ *  - CUSTOMER.DISPUTE.CREATED/UPDATED/RESOLVED  拒付事件（转发 ChargebackService）
+ *  - RISK.DISPUTE.CREATED              风险拒付（同上转发）
  */
 @Service
 public class PayPalChannelNoticeService implements IChannelNoticeService {
 
     private static final Logger logger = LoggerFactory.getLogger(PayPalChannelNoticeService.class);
+
+    @Autowired
+    private ChargebackService chargebackService;
+
+    @Autowired
+    private RefundOrderService refundOrderService;
 
     @Override
     public String getIfCode() {
@@ -57,11 +69,19 @@ public class PayPalChannelNoticeService implements IChannelNoticeService {
                 }
             }
 
+            String eventType = event.getString("event_type");
+
             // 提取 jeepay 订单号
             String payOrderId = extractPayOrderId(event);
             if (payOrderId == null) {
-                logger.warn("[PayPal Webhook] 未能提取订单号 eventId={}", event.getString("id"));
-                return null;
+                // 拒付/退款类辅助事件未必能直接提取订单号，用占位 ID 跳过订单更新
+                if (isAuxiliaryEvent(eventType)) {
+                    payOrderId = "PAYPAL_AUX_" + event.getString("id");
+                } else {
+                    logger.warn("[PayPal Webhook] 未能提取订单号 eventId={}, type={}",
+                            event.getString("id"), eventType);
+                    return null;
+                }
             }
 
             return MutablePair.of(payOrderId, new Wrapper(payload, headers, event));
@@ -80,11 +100,13 @@ public class PayPalChannelNoticeService implements IChannelNoticeService {
             JSONObject config = PayPalKit.parseConfig(configStr);
 
             // 1. 签名校验（向 PayPal 服务端发请求）
-            if (!PayPalKit.verifyWebhook(config, w.headers, w.payload)) {
-                logger.error("[PayPal Webhook] 签名校验失败 payOrderId={}", payOrder.getPayOrderId());
+            // 为什么这么做：PayPal Webhook 没有简单的 HMAC，必须用 verify-webhook-signature 接口
+            if (!PayPalKit.verifyWebhookSignature(config, w.headers, w.payload)) {
+                logger.error("[PayPal Webhook] 签名校验失败 payOrderId={}",
+                        payOrder == null ? "n/a" : payOrder.getPayOrderId());
                 ChannelRetMsg fail = new ChannelRetMsg();
                 fail.setChannelState(ChannelRetMsg.ChannelState.SYS_ERROR);
-                fail.setResponseEntity(text("fail"));
+                fail.setResponseEntity(text("invalid signature", HttpStatus.BAD_REQUEST));
                 return fail;
             }
 
@@ -102,8 +124,22 @@ public class PayPalChannelNoticeService implements IChannelNoticeService {
                 ret.setChannelOrderId(resource.getString("id"));
                 ret.setChannelState(ChannelRetMsg.ChannelState.CONFIRM_FAIL);
                 ret.setChannelErrMsg("PayPal capture denied");
+
+            // ============ 退款事件 ============
+            } else if (PayPalConfig.EVENT_CAPTURE_REFUNDED.equals(eventType)) {
+                handleRefundEvent(resource);
+                ret.setChannelState(ChannelRetMsg.ChannelState.WAITING);
+
+            // ============ 拒付事件 ============
+            } else if (PayPalConfig.EVENT_DISPUTE_CREATED.equals(eventType)
+                    || PayPalConfig.EVENT_DISPUTE_RESOLVED.equals(eventType)
+                    || PayPalConfig.EVENT_DISPUTE_UPDATED.equals(eventType)
+                    || PayPalConfig.EVENT_RISK_DISPUTE_CREATED.equals(eventType)) {
+                // 转发到统一拒付处理服务（落库 + 状态更新）
+                chargebackService.onChargebackEvent("paypal", w.event);
+                ret.setChannelState(ChannelRetMsg.ChannelState.WAITING);
+
             } else {
-                // 其他事件（APPROVED/REFUNDED）暂不更新订单状态
                 logger.info("[PayPal Webhook] 忽略事件: {}", eventType);
                 ret.setChannelState(ChannelRetMsg.ChannelState.WAITING);
             }
@@ -115,6 +151,42 @@ public class PayPalChannelNoticeService implements IChannelNoticeService {
             ret.setResponseEntity(text("fail"));
             return ret;
         }
+    }
+
+    /**
+     * 退款事件回写 RefundOrder
+     * PayPal PAYMENT.CAPTURE.REFUNDED 的 resource 直接是 Refund 对象
+     */
+    private void handleRefundEvent(JSONObject resource) {
+        try {
+            if (resource == null) return;
+            String invoiceId = resource.getString("invoice_id");
+            if (invoiceId == null) return;
+
+            RefundOrder ro = refundOrderService.getById(invoiceId);
+            if (ro == null) return;
+
+            String status = resource.getString("status");
+            if ("COMPLETED".equalsIgnoreCase(status) && ro.getState() != RefundOrder.STATE_SUCCESS) {
+                refundOrderService.updateIng2Success(invoiceId, resource.getString("id"));
+            } else if (("FAILED".equalsIgnoreCase(status) || "CANCELLED".equalsIgnoreCase(status))
+                    && ro.getState() != RefundOrder.STATE_FAIL) {
+                refundOrderService.updateIng2Fail(invoiceId, resource.getString("id"),
+                        status, "PayPal refund " + status);
+            }
+            // 通道健康度刷新由独立定时任务聚合（与 Stripe 保持一致）
+        } catch (Exception e) {
+            logger.error("[PayPal Webhook] 退款事件处理异常", e);
+        }
+    }
+
+    /** 拒付/退款类辅助事件：不直接关联 PayOrder 主状态 */
+    private boolean isAuxiliaryEvent(String eventType) {
+        return PayPalConfig.EVENT_CAPTURE_REFUNDED.equals(eventType)
+                || PayPalConfig.EVENT_DISPUTE_CREATED.equals(eventType)
+                || PayPalConfig.EVENT_DISPUTE_RESOLVED.equals(eventType)
+                || PayPalConfig.EVENT_DISPUTE_UPDATED.equals(eventType)
+                || PayPalConfig.EVENT_RISK_DISPUTE_CREATED.equals(eventType);
     }
 
     @Override

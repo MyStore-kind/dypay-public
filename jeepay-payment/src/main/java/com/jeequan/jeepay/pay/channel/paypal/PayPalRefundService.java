@@ -43,10 +43,28 @@ public class PayPalRefundService implements IRefundService {
 
     @Override
     public ChannelRetMsg refund(RefundOrderRQ bizRQ, RefundOrder refundOrder, PayOrder payOrder, MchAppConfigContext mchAppConfigContext) throws Exception {
+
+        // 0. 幂等校验：已完成/已失败的退款不再调用 PayPal API
+        // 为什么这么做：JeePay 框架在通道异常时会重试，需避免重复扣商户款
+        if (refundOrder.getState() == RefundOrder.STATE_SUCCESS) {
+            ChannelRetMsg ret = new ChannelRetMsg();
+            ret.setChannelState(ChannelRetMsg.ChannelState.CONFIRM_SUCCESS);
+            ret.setChannelOrderId(refundOrder.getChannelOrderNo());
+            return ret;
+        }
+        if (refundOrder.getState() == RefundOrder.STATE_FAIL) {
+            ChannelRetMsg ret = new ChannelRetMsg();
+            ret.setChannelState(ChannelRetMsg.ChannelState.CONFIRM_FAIL);
+            ret.setChannelErrMsg("退款单已是失败状态");
+            return ret;
+        }
+
         String configStr = mchAppConfigContext.getNormalMchParamsByIfCode(getIfCode()).toString();
         JSONObject config = PayPalKit.parseConfig(configStr);
 
         // 原渠道订单号即 capture_id
+        // PayPalKit.refund 内部已使用 refundOrderId 作为 paypalRequestId（幂等键），
+        // PayPal 端会对相同 paypalRequestId 返回同一笔退款，进一步保证幂等
         String currency = payOrder.getCurrency() == null ? "USD" : payOrder.getCurrency();
         Refund result = PayPalKit.refund(config, payOrder.getChannelOrderNo(),
                 refundOrder.getRefundAmount(),

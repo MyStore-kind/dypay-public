@@ -147,6 +147,62 @@ public class PayPalKit {
     }
 
     /**
+     * 创建支持信用卡直接支付的 Order（PayPal Advanced Card Processing）
+     *
+     * 为什么单独走 REST 而不复用 SDK：
+     * - SDK 的 OrderRequest 在不同版本对 payment_source.card 字段的封装差异较大
+     * - 使用 REST 直接构造 JSON 更稳定、可控
+     * - 信用卡走 ACP 不需要买家跳转 PayPal 站点，前端用 PayPal hosted-fields/JS SDK 收集卡信息
+     *   后端只负责创建 order 与 capture，卡号不进入我们服务器（PCI DSS 合规）
+     *
+     * @return 包含 order id 与 status 的 JSON
+     */
+    public static JSONObject createCardOrder(JSONObject config, Long amount, String currency,
+                                             String payOrderId, String returnUrl, String cancelUrl) {
+        try {
+            String token = obtainAccessToken(config);
+            String url = getBaseUrl(config) + "/v2/checkout/orders";
+
+            JSONObject body = new JSONObject();
+            body.put("intent", "CAPTURE");
+
+            // purchase_units
+            JSONObject amountObj = new JSONObject();
+            amountObj.put("currency_code", currency.toUpperCase());
+            amountObj.put("value", convertToMajorUnit(amount, currency));
+
+            JSONObject unit = new JSONObject();
+            unit.put("amount", amountObj);
+            unit.put("custom_id", payOrderId);
+
+            body.put("purchase_units", Collections.singletonList(unit));
+
+            // 仅声明支持 card（不收集敏感卡数据，由前端 hosted-fields 提交）
+            JSONObject card = new JSONObject();
+            JSONObject experienceContext = new JSONObject();
+            experienceContext.put("return_url", returnUrl);
+            experienceContext.put("cancel_url", cancelUrl);
+            card.put("experience_context", experienceContext);
+
+            JSONObject paymentSource = new JSONObject();
+            paymentSource.put("card", card);
+            body.put("payment_source", paymentSource);
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Authorization", "Bearer " + token);
+            headers.set("PayPal-Request-Id", payOrderId); // 幂等键
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            ResponseEntity<String> resp = REST.exchange(url, HttpMethod.POST,
+                    new HttpEntity<>(body.toJSONString(), headers), String.class);
+            return JSONObject.parseObject(resp.getBody());
+        } catch (Exception e) {
+            logger.error("[PayPal] 创建卡片订单失败 payOrderId={}", payOrderId, e);
+            throw new BizException("PayPal 卡支付下单失败：" + e.getMessage());
+        }
+    }
+
+    /**
      * 退款（基于 capture_id）
      */
     public static Refund refund(JSONObject config, String captureId, Long refundAmount,
@@ -184,12 +240,18 @@ public class PayPalKit {
     /**
      * Webhook 签名校验（REST 直接调用 verify-webhook-signature）
      * 注意：SDK 暂未封装该接口，使用 RestTemplate 调用
+     *
+     * 校验逻辑：
+     * 1. 收集 PayPal 在请求头中传的 6 个字段：
+     *    transmission_id / transmission_time / cert_url / auth_algo / transmission_sig / webhook_id
+     * 2. 与原始 event_body 一起 POST 给 PayPal /v1/notifications/verify-webhook-signature
+     * 3. 响应中 verification_status=SUCCESS 表示校验通过
+     *
+     * 为什么用在线验签：本地下载 cert + RSA 验签实现复杂且需要缓存 cert，
+     * 上线初期用在线接口更稳，后续如有性能压力再切换本地验签。
      */
     public static boolean verifyWebhook(JSONObject config, Map<String, String> headers, String body) {
         try {
-            PaypalServerSdkClient client = getClient(config);
-            // 复用 SDK 内部的 access token：但 SDK 没有暴露 getter，需走 RestTemplate 独立认证
-            // 这里使用一次性 OAuth 调用获取 token（频率低，可接受）
             String token = obtainAccessToken(config);
 
             String url = getBaseUrl(config) + "/v1/notifications/verify-webhook-signature";
@@ -214,6 +276,14 @@ public class PayPalKit {
             logger.error("[PayPal] Webhook 校验失败", e);
             return false;
         }
+    }
+
+    /**
+     * Webhook 签名校验（语义化别名）
+     * 等同于 {@link #verifyWebhook(JSONObject, Map, String)}，仅命名更贴近通用规范
+     */
+    public static boolean verifyWebhookSignature(JSONObject config, Map<String, String> headers, String body) {
+        return verifyWebhook(config, headers, body);
     }
 
     /**

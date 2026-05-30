@@ -35,7 +35,14 @@ public class StripeConfig {
     /** Webhook 事件类型 */
     public static final String EVENT_PAYMENT_INTENT_SUCCEEDED = "payment_intent.succeeded";
     public static final String EVENT_PAYMENT_INTENT_FAILED = "payment_intent.payment_failed";
+    public static final String EVENT_PAYMENT_INTENT_REQUIRES_ACTION = "payment_intent.requires_action";
     public static final String EVENT_CHARGE_REFUNDED = "charge.refunded";
+    /** 拒付相关事件 */
+    public static final String EVENT_DISPUTE_CREATED = "charge.dispute.created";
+    public static final String EVENT_DISPUTE_FUNDS_WITHDRAWN = "charge.dispute.funds_withdrawn";
+    public static final String EVENT_DISPUTE_UPDATED = "charge.dispute.updated";
+    /** Stripe Radar 早期欺诈预警（在拒付前预警，可主动退款止损） */
+    public static final String EVENT_EARLY_FRAUD_WARNING = "radar.early_fraud_warning";
 
     /** 元数据 key：用于在 Stripe 侧关联 JeePay 订单号 */
     public static final String METADATA_PAY_ORDER_ID = "jeepay_order_id";

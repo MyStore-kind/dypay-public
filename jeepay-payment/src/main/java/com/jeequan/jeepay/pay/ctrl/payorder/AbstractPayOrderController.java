@@ -43,6 +43,7 @@ import com.jeequan.jeepay.pay.rqrs.payorder.payway.QrCashierOrderRS;
 import com.jeequan.jeepay.pay.service.ConfigContextQueryService;
 import com.jeequan.jeepay.pay.service.PayOrderProcessService;
 import com.jeequan.jeepay.service.impl.ChannelAccountRouteHook;
+import com.jeequan.jeepay.service.impl.CurrencyRateService;
 import com.jeequan.jeepay.service.impl.MchPayPassageService;
 import com.jeequan.jeepay.service.impl.OrderRiskHookService;
 import com.jeequan.jeepay.service.impl.PayOrderService;
@@ -75,6 +76,8 @@ public abstract class AbstractPayOrderController extends ApiController {
     // 国际四方扩展（订单入库前的钩子，不影响主流程）
     @Autowired(required = false) private OrderRiskHookService orderRiskHookService;
     @Autowired(required = false) private ChannelAccountRouteHook channelAccountRouteHook;
+    // 多币种汇率：下单时冻结当前汇率快照
+    @Autowired(required = false) private CurrencyRateService currencyRateService;
 
 
     /** 统一下单 (新建订单模式) **/
@@ -320,6 +323,24 @@ public abstract class AbstractPayOrderController extends ApiController {
         }
 
         payOrder.setCreatedAt(nowDate); //订单创建时间
+
+        // ====== 多币种汇率冻结快照（任务#4）======
+        // 为什么这么做：下单瞬间锁定汇率，避免退款/对账阶段因汇率波动造成差异。
+        // 注意事项：
+        //  - 默认基准币种 USD；若商户配置了 settlement_currency 可后续接入。
+        //  - 异常降级：取不到汇率不阻断下单，仅打日志。
+        try {
+            if (currencyRateService != null && payOrder.getCurrency() != null) {
+                String baseCurrency = "USD";
+                java.math.BigDecimal frozen = currencyRateService.lockRate(baseCurrency, payOrder.getCurrency());
+                payOrder.setFrozenRate(frozen);
+                payOrder.setBaseCurrency(baseCurrency);
+            }
+        } catch (Exception ex) {
+            // 不阻塞主流程
+            log.warn("[unifiedOrder] 冻结汇率失败 mchOrderNo={} currency={} err={}",
+                    payOrder.getMchOrderNo(), payOrder.getCurrency(), ex.getMessage());
+        }
         return payOrder;
     }
 
