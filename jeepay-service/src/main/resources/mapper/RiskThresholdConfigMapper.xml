@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  风险阈值配置 SQL
+  关键设计：
+  - config_key 即主键，单条查询走聚簇索引
+  - 上层必须配合 Redis 缓存，每次风控决策都查库会拖垮系统
+  - selectAllEnabled 仅在缓存预热/失效时调用
+-->
+<mapper namespace="com.jeequan.jeepay.service.mapper.RiskThresholdConfigMapper">
+
+    <resultMap id="BaseResultMap" type="com.jeequan.jeepay.core.entity.RiskThresholdConfig">
+        <id column="config_key" property="configKey"/>
+        <result column="config_value" property="configValue"/>
+        <result column="value_type" property="valueType"/>
+        <result column="group_key" property="groupKey"/>
+        <result column="group_name" property="groupName"/>
+        <result column="config_name" property="configName"/>
+        <result column="config_desc" property="configDesc"/>
+        <result column="action_type" property="actionType"/>
+        <result column="action_enabled" property="actionEnabled"/>
+        <result column="sort_num" property="sortNum"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        config_key, config_value, value_type, group_key, group_name,
+        config_name, config_desc, action_type, action_enabled, sort_num,
+        created_at, updated_at
+    </sql>
+
+    <!-- 单 key 查询 -->
+    <select id="selectByConfigKey" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM t_risk_threshold_config
+        WHERE config_key = #{configKey}
+        LIMIT 1
+    </select>
+
+    <!-- 按分组查询（运营后台分组展示） -->
+    <select id="selectByGroupKey" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM t_risk_threshold_config
+        WHERE group_key = #{groupKey}
+        ORDER BY sort_num ASC
+    </select>
+
+    <!--
+      全量加载启用配置（缓存预热）
+      返回所有 action_enabled=1 的配置项
+    -->
+    <select id="selectAllEnabled" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM t_risk_threshold_config
+        WHERE action_enabled = 1
+        ORDER BY group_key ASC, sort_num ASC
+    </select>
+
+</mapper>

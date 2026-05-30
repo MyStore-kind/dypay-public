@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  拒付记录 SQL
+  关键设计：
+  - 应诉截止时间 evidence_due_at 是核心字段，超时未应诉视为败诉
+  - 状态机：received -> under_review -> responded -> won/lost；或直接 expired
+-->
+<mapper namespace="com.jeequan.jeepay.service.mapper.ChargebackRecordMapper">
+
+    <resultMap id="BaseResultMap" type="com.jeequan.jeepay.core.entity.ChargebackRecord">
+        <id column="id" property="id"/>
+        <result column="pay_order_id" property="payOrderId"/>
+        <result column="channel_chargeback_id" property="channelChargebackId"/>
+        <result column="mch_no" property="mchNo"/>
+        <result column="account_id" property="accountId"/>
+        <result column="if_code" property="ifCode"/>
+        <result column="chargeback_amount" property="chargebackAmount"/>
+        <result column="chargeback_currency" property="chargebackCurrency"/>
+        <result column="chargeback_reason_code" property="chargebackReasonCode"/>
+        <result column="chargeback_reason_desc" property="chargebackReasonDesc"/>
+        <result column="chargeback_type" property="chargebackType"/>
+        <result column="state" property="state"/>
+        <result column="evidence_due_at" property="evidenceDueAt"/>
+        <result column="evidence_submitted_at" property="evidenceSubmittedAt"/>
+        <result column="resolved_at" property="resolvedAt"/>
+        <result column="customer_ip" property="customerIp"/>
+        <result column="customer_email" property="customerEmail"/>
+        <result column="customer_name" property="customerName"/>
+        <result column="shipping_address" property="shippingAddress"/>
+        <result column="billing_address" property="billingAddress"/>
+        <result column="receipt_url" property="receiptUrl"/>
+        <result column="service_documentation" property="serviceDocumentation"/>
+        <result column="communication_log" property="communicationLog"/>
+        <result column="evidence_files" property="evidenceFiles"/>
+        <result column="remark" property="remark"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, pay_order_id, channel_chargeback_id, mch_no, account_id, if_code,
+        chargeback_amount, chargeback_currency, chargeback_reason_code, chargeback_reason_desc, chargeback_type,
+        state, evidence_due_at, evidence_submitted_at, resolved_at,
+        customer_ip, customer_email, customer_name, shipping_address, billing_address,
+        receipt_url, service_documentation, communication_log, evidence_files,
+        remark, created_at, updated_at
+    </sql>
+
+    <!-- 分页查询（含商户名） -->
+    <select id="selectChargebackPage" resultType="java.util.HashMap">
+        SELECT
+            c.id AS id,
+            c.pay_order_id AS payOrderId,
+            c.channel_chargeback_id AS channelChargebackId,
+            c.mch_no AS mchNo,
+            m.mch_name AS mchName,
+            c.account_id AS accountId,
+            c.if_code AS ifCode,
+            c.chargeback_amount AS chargebackAmount,
+            c.chargeback_currency AS chargebackCurrency,
+            c.chargeback_reason_code AS chargebackReasonCode,
+            c.chargeback_reason_desc AS chargebackReasonDesc,
+            c.chargeback_type AS chargebackType,
+            c.state AS state,
+            c.evidence_due_at AS evidenceDueAt,
+            c.evidence_submitted_at AS evidenceSubmittedAt,
+            c.resolved_at AS resolvedAt,
+            c.created_at AS createdAt
+        FROM t_chargeback_record c
+        LEFT JOIN t_mch_info m ON m.mch_no = c.mch_no
+        <where>
+            <if test="mchNo != null and mchNo != ''">
+                AND c.mch_no = #{mchNo}
+            </if>
+            <if test="accountId != null and accountId != ''">
+                AND c.account_id = #{accountId}
+            </if>
+            <if test="ifCode != null and ifCode != ''">
+                AND c.if_code = #{ifCode}
+            </if>
+            <if test="state != null and state != ''">
+                AND c.state = #{state}
+            </if>
+            <if test="startTime != null">
+                AND c.created_at &gt;= #{startTime}
+            </if>
+            <if test="endTime != null">
+                AND c.created_at &lt; #{endTime}
+            </if>
+        </where>
+        ORDER BY c.created_at DESC
+    </select>
+
+    <!-- 按账号统计拒付笔数（健康度计算使用） -->
+    <select id="countByAccount" resultType="java.lang.Integer">
+        SELECT COUNT(*) FROM t_chargeback_record
+        WHERE account_id = #{accountId}
+          AND created_at &gt;= #{startTime}
+          AND created_at &lt; #{endTime}
+    </select>
+
+    <!--
+      统计即将到期的应诉记录
+      DATE_ADD(NOW(), INTERVAL hoursLeft HOUR) 计算未来截止线
+    -->
+    <select id="countNearDeadline" resultType="java.lang.Integer">
+        SELECT COUNT(*) FROM t_chargeback_record
+        WHERE state IN ('received', 'under_review')
+          AND evidence_due_at IS NOT NULL
+          AND evidence_due_at &gt; NOW()
+          AND evidence_due_at &lt;= DATE_ADD(NOW(), INTERVAL #{hoursLeft} HOUR)
+    </select>
+
+</mapper>

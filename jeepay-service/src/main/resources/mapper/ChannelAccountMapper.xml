@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  通道账号池 SQL
+  关键设计：
+  - 路由器选号场景对延迟敏感，所有查询走 idx_if_code_state 索引
+  - 健康状态 1-健康/2-警告 仍可路由，0-异常/3-限流 不参与
+  - MCC 白/黑名单存储为逗号分隔字符串，使用 FIND_IN_SET 精确匹配
+-->
+<mapper namespace="com.jeequan.jeepay.service.mapper.ChannelAccountMapper">
+
+    <resultMap id="BaseResultMap" type="com.jeequan.jeepay.core.entity.ChannelAccount">
+        <id column="account_id" property="accountId"/>
+        <result column="if_code" property="ifCode"/>
+        <result column="account_name" property="accountName"/>
+        <result column="config_params" property="configParams"/>
+        <result column="daily_limit_amount" property="dailyLimitAmount"/>
+        <result column="monthly_limit_amount" property="monthlyLimitAmount"/>
+        <result column="single_limit_amount" property="singleLimitAmount"/>
+        <result column="current_daily_amount" property="currentDailyAmount"/>
+        <result column="current_monthly_amount" property="currentMonthlyAmount"/>
+        <result column="last_reset_date" property="lastResetDate"/>
+        <result column="chargeback_rate" property="chargebackRate"/>
+        <result column="dispute_rate" property="disputeRate"/>
+        <result column="refund_rate" property="refundRate"/>
+        <result column="success_rate" property="successRate"/>
+        <result column="total_transactions_30d" property="totalTransactions30d"/>
+        <result column="last_health_check_at" property="lastHealthCheckAt"/>
+        <result column="risk_tier" property="riskTier"/>
+        <result column="mcc_whitelist" property="mccWhitelist"/>
+        <result column="mcc_blacklist" property="mccBlacklist"/>
+        <result column="country_whitelist" property="countryWhitelist"/>
+        <result column="country_blacklist" property="countryBlacklist"/>
+        <result column="currency_whitelist" property="currencyWhitelist"/>
+        <result column="priority" property="priority"/>
+        <result column="weight" property="weight"/>
+        <result column="health_status" property="healthStatus"/>
+        <result column="state" property="state"/>
+        <result column="remark" property="remark"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        account_id, if_code, account_name, config_params,
+        daily_limit_amount, monthly_limit_amount, single_limit_amount,
+        current_daily_amount, current_monthly_amount, last_reset_date,
+        chargeback_rate, dispute_rate, refund_rate, success_rate,
+        total_transactions_30d, last_health_check_at,
+        risk_tier, mcc_whitelist, mcc_blacklist, country_whitelist, country_blacklist, currency_whitelist,
+        priority, weight, health_status, state, remark, created_at, updated_at
+    </sql>
+
+    <!--
+      路由器选号核心查询：可用账号
+      条件：启用 + 健康/警告 + 通道编码匹配
+      排序：priority 高优先 + 健康度好的靠前 + 权重大的靠前
+    -->
+    <select id="selectAvailableAccounts" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM t_channel_account
+        WHERE if_code = #{ifCode}
+          AND state = 1
+          AND health_status IN (1, 2)
+        ORDER BY priority DESC, health_status ASC, weight DESC
+    </select>
+
+    <!--
+      风险等级 + MCC 过滤
+      为什么用 FIND_IN_SET：mcc_whitelist 存储为 "5411,5812,5912" 形式
+      mcc_whitelist 为空表示不限；mcc_blacklist 为空表示不限
+    -->
+    <select id="selectByRiskTierAndMcc" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM t_channel_account
+        WHERE if_code = #{ifCode}
+          AND state = 1
+          AND health_status IN (1, 2)
+          AND risk_tier = #{riskTier}
+          AND (mcc_whitelist IS NULL OR mcc_whitelist = '' OR FIND_IN_SET(#{mcc}, mcc_whitelist) &gt; 0)
+          AND (mcc_blacklist IS NULL OR mcc_blacklist = '' OR FIND_IN_SET(#{mcc}, mcc_blacklist) = 0)
+        ORDER BY priority DESC, weight DESC
+    </select>
+
+    <!--
+      按剩余额度排序
+      LEAST 取日/月剩余额度的较小值，0 表示不限（用大数代替）
+    -->
+    <select id="selectOrderByRemainingQuota" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM t_channel_account
+        WHERE if_code = #{ifCode}
+          AND state = 1
+          AND health_status IN (1, 2)
+        ORDER BY LEAST(
+            CASE WHEN daily_limit_amount = 0 THEN 9999999999 ELSE daily_limit_amount - current_daily_amount END,
+            CASE WHEN monthly_limit_amount = 0 THEN 9999999999 ELSE monthly_limit_amount - current_monthly_amount END
+        ) DESC,
+        priority DESC
+    </select>
+
+</mapper>

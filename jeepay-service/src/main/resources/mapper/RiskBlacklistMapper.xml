@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  风险黑名单 SQL
+  关键设计：
+  - 多类型统一表，按 (list_type, list_value) 唯一约束去重
+  - 生效条件：state=1 且 未过期
+  - 命中频次累计支持热点黑名单识别
+-->
+<mapper namespace="com.jeequan.jeepay.service.mapper.RiskBlacklistMapper">
+
+    <resultMap id="BaseResultMap" type="com.jeequan.jeepay.core.entity.RiskBlacklist">
+        <id column="id" property="id"/>
+        <result column="list_type" property="listType"/>
+        <result column="list_value" property="listValue"/>
+        <result column="reason" property="reason"/>
+        <result column="source" property="source"/>
+        <result column="hit_count" property="hitCount"/>
+        <result column="last_hit_at" property="lastHitAt"/>
+        <result column="expire_at" property="expireAt"/>
+        <result column="state" property="state"/>
+        <result column="created_by" property="createdBy"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, list_type, list_value, reason, source,
+        hit_count, last_hit_at, expire_at, state, created_by, created_at, updated_at
+    </sql>
+
+    <!--
+      单条命中校验
+      生效条件：state=1 且 (无过期时间 OR 过期时间未到)
+    -->
+    <select id="hitCheck" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM t_risk_blacklist
+        WHERE list_type = #{listType}
+          AND list_value = #{listValue}
+          AND state = 1
+          AND (expire_at IS NULL OR expire_at &gt; NOW())
+        LIMIT 1
+    </select>
+
+    <!--
+      批量命中校验
+      使用 OR 拼接多组 (type, value)，一次查询返回所有命中项
+      items 集合元素需包含 listType + listValue
+    -->
+    <select id="batchHitCheck" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM t_risk_blacklist
+        WHERE state = 1
+          AND (expire_at IS NULL OR expire_at &gt; NOW())
+          AND (
+          <foreach collection="items" item="it" separator=" OR ">
+              (list_type = #{it.listType} AND list_value = #{it.listValue})
+          </foreach>
+          )
+    </select>
+
+    <!-- 命中计数累加（命中后异步调用） -->
+    <update id="incrementHitCount">
+        UPDATE t_risk_blacklist
+        SET hit_count = hit_count + 1,
+            last_hit_at = NOW(),
+            updated_at = NOW(3)
+        WHERE id = #{id}
+    </update>
+
+</mapper>

@@ -253,6 +253,8 @@ CREATE TABLE `t_chargeback_record` (
   `service_documentation` TEXT COMMENT '服务履约证明',
   `communication_log` TEXT COMMENT '客户沟通记录',
   `evidence_files` JSON COMMENT '证据文件列表',
+  `evidence_snapshot` JSON COMMENT '订单时点的证据快照（IP/UA/设备/3DS等）',
+  `dispute_type` VARCHAR(20) DEFAULT 'CHARGEBACK' COMMENT '争议类型 CHARGEBACK / COMPLAINT',
 
   `remark` VARCHAR(512),
   `created_at` TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -296,34 +298,64 @@ CREATE TABLE `t_risk_threshold_config` (
 
 
 -- ============================================
--- 8. 商户表字段扩展
+-- 8. 商户表字段扩展（幂等）
+-- 为什么这么做：MySQL 不支持 ADD COLUMN IF NOT EXISTS，
+-- 重复执行 ALTER 会报 Duplicate column。使用存储过程统一封装。
 -- ============================================
-ALTER TABLE `t_mch_info`
-  ADD COLUMN `mcc_code` VARCHAR(10) COMMENT 'MCC行业代码' AFTER `support_currencies`,
-  ADD COLUMN `risk_tier` VARCHAR(10) NOT NULL DEFAULT 'mid' COMMENT '风险等级 low/mid/high' AFTER `mcc_code`,
-  ADD COLUMN `current_risk_score` INT NOT NULL DEFAULT 50 COMMENT '当前风险评分' AFTER `risk_tier`,
-  ADD COLUMN `daily_limit_amount` BIGINT NOT NULL DEFAULT 0 COMMENT '日交易限额（分，0=不限）' AFTER `current_risk_score`,
-  ADD COLUMN `single_limit_amount` BIGINT NOT NULL DEFAULT 0 COMMENT '单笔限额（分，0=不限）' AFTER `daily_limit_amount`,
-  ADD COLUMN `auto_suspend_enabled` TINYINT NOT NULL DEFAULT 0 COMMENT '超阈值自动暂停 0-否 1-是' AFTER `single_limit_amount`,
-  ADD KEY `idx_risk_tier` (`risk_tier`);
+DROP PROCEDURE IF EXISTS `pr_risk_add_col`;
+DELIMITER //
+CREATE PROCEDURE `pr_risk_add_col`(IN p_table VARCHAR(64), IN p_col VARCHAR(64), IN p_def TEXT)
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+                  WHERE TABLE_SCHEMA = DATABASE()
+                    AND TABLE_NAME = p_table AND COLUMN_NAME = p_col) THEN
+        SET @s = CONCAT('ALTER TABLE `', p_table, '` ADD COLUMN `', p_col, '` ', p_def);
+        PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+    END IF;
+END//
+DELIMITER ;
+
+DROP PROCEDURE IF EXISTS `pr_risk_add_idx`;
+DELIMITER //
+CREATE PROCEDURE `pr_risk_add_idx`(IN p_table VARCHAR(64), IN p_idx VARCHAR(64), IN p_cols VARCHAR(256))
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+                  WHERE TABLE_SCHEMA = DATABASE()
+                    AND TABLE_NAME = p_table AND INDEX_NAME = p_idx) THEN
+        SET @s = CONCAT('ALTER TABLE `', p_table, '` ADD KEY `', p_idx, '` (', p_cols, ')');
+        PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+    END IF;
+END//
+DELIMITER ;
+
+CALL `pr_risk_add_col`('t_mch_info', 'mcc_code', 'VARCHAR(10) COMMENT ''MCC行业代码'' AFTER `support_currencies`');
+CALL `pr_risk_add_col`('t_mch_info', 'risk_tier', 'VARCHAR(10) NOT NULL DEFAULT ''mid'' COMMENT ''风险等级 low/mid/high'' AFTER `mcc_code`');
+CALL `pr_risk_add_col`('t_mch_info', 'current_risk_score', 'INT NOT NULL DEFAULT 50 COMMENT ''当前风险评分'' AFTER `risk_tier`');
+CALL `pr_risk_add_col`('t_mch_info', 'daily_limit_amount', 'BIGINT NOT NULL DEFAULT 0 COMMENT ''日交易限额（分，0=不限）'' AFTER `current_risk_score`');
+CALL `pr_risk_add_col`('t_mch_info', 'single_limit_amount', 'BIGINT NOT NULL DEFAULT 0 COMMENT ''单笔限额（分，0=不限）'' AFTER `daily_limit_amount`');
+CALL `pr_risk_add_col`('t_mch_info', 'auto_suspend_enabled', 'TINYINT NOT NULL DEFAULT 0 COMMENT ''超阈值自动暂停 0-否 1-是'' AFTER `single_limit_amount`');
+CALL `pr_risk_add_idx`('t_mch_info', 'idx_risk_tier', '`risk_tier`');
 
 
 -- ============================================
--- 9. 订单表字段扩展（风控信息）
+-- 9. 订单表字段扩展（风控信息，幂等）
 -- ============================================
-ALTER TABLE `t_pay_order`
-  ADD COLUMN `risk_score` INT DEFAULT 0 COMMENT '风险评分' AFTER `settlement_amount`,
-  ADD COLUMN `risk_action` VARCHAR(20) DEFAULT 'pass' COMMENT '风控动作 pass/3ds/reject' AFTER `risk_score`,
-  ADD COLUMN `account_id` VARCHAR(64) COMMENT '使用的通道账号ID' AFTER `risk_action`,
-  ADD KEY `idx_account_id` (`account_id`),
-  ADD KEY `idx_risk_action` (`risk_action`);
+CALL `pr_risk_add_col`('t_pay_order', 'risk_score', 'INT DEFAULT 0 COMMENT ''风险评分'' AFTER `settlement_amount`');
+CALL `pr_risk_add_col`('t_pay_order', 'risk_action', 'VARCHAR(20) DEFAULT ''pass'' COMMENT ''风控动作 pass/3ds/reject'' AFTER `risk_score`');
+CALL `pr_risk_add_col`('t_pay_order', 'account_id', 'VARCHAR(64) COMMENT ''使用的通道账号ID'' AFTER `risk_action`');
+CALL `pr_risk_add_idx`('t_pay_order', 'idx_account_id', '`account_id`');
+CALL `pr_risk_add_idx`('t_pay_order', 'idx_risk_action', '`risk_action`');
+
+DROP PROCEDURE IF EXISTS `pr_risk_add_col`;
+DROP PROCEDURE IF EXISTS `pr_risk_add_idx`;
 
 
 -- ============================================
--- 10. 初始化默认阈值配置（参考值，运营可改）
+-- 10. 初始化默认阈值配置（共 26 项，覆盖通道/商户/订单/黑名单/通知）
+-- 使用 INSERT IGNORE 保证幂等，便于重复执行
 -- ============================================
-INSERT INTO `t_risk_threshold_config` (config_key, config_value, value_type, group_key, group_name, config_name, config_desc, action_type, action_enabled, sort_num) VALUES
--- 通道账号阈值
+INSERT IGNORE INTO `t_risk_threshold_config` (config_key, config_value, value_type, group_key, group_name, config_name, config_desc, action_type, action_enabled, sort_num) VALUES
+-- 通道账号阈值（9 项）
 ('channel.chargeback_rate.warning', '0.7', 'number', 'channel', '通道账号', '拒付率黄线(%)', '触发后告警通知，参考值 0.7%', 'notify', 1, 1),
 ('channel.chargeback_rate.critical', '0.9', 'number', 'channel', '通道账号', '拒付率红线(%)', '触发后自动限流或停用账号，参考 Visa 红线 0.9%', 'limit', 1, 2),
 ('channel.dispute_rate.warning', '0.8', 'number', 'channel', '通道账号', '投诉率黄线(%)', '', 'notify', 1, 3),
@@ -334,30 +366,73 @@ INSERT INTO `t_risk_threshold_config` (config_key, config_value, value_type, gro
 ('channel.success_rate.critical', '85.0', 'number', 'channel', '通道账号', '成功率红线(%)', '低于此值切换账号', 'switch', 1, 8),
 ('channel.daily_amount_burst_ratio', '3.0', 'number', 'channel', '通道账号', '日交易突增比例', '当日金额超昨日 N 倍时告警', 'notify', 1, 9),
 
--- 商户阈值
+-- 商户阈值（4 项）
 ('merchant.chargeback_rate.warning', '0.7', 'number', 'merchant', '商户', '商户拒付率黄线(%)', '', 'notify', 1, 1),
 ('merchant.chargeback_rate.critical', '0.9', 'number', 'merchant', '商户', '商户拒付率红线(%)', '触发后限流或暂停商户', 'limit', 1, 2),
 ('merchant.dispute_rate.critical', '1.0', 'number', 'merchant', '商户', '商户投诉率红线(%)', '', 'limit', 1, 3),
 ('merchant.high_risk_score.threshold', '70', 'number', 'merchant', '商户', '高风险评分阈值', '评分超过此值标记为 high', 'notify', 1, 4),
 
--- 订单风控阈值
+-- 订单风控阈值（4 项）
 ('order.risk_score.reject', '60', 'number', 'order', '订单风控', '订单拒绝评分阈值', '订单评分超此值直接拒绝', 'reject', 1, 1),
 ('order.risk_score.3ds', '30', 'number', 'order', '订单风控', '订单强制3DS阈值', '订单评分超此值强制3DS', '3ds', 1, 2),
 ('order.same_ip_freq.threshold', '5', 'number', 'order', '订单风控', '同IP高频阈值(笔/10分钟)', '同IP 10分钟内超过 N 笔失败时拦截', 'reject', 1, 3),
 ('order.same_card_merchants.threshold', '3', 'number', 'order', '订单风控', '同卡多商户阈值(个/24小时)', '同卡 24 小时使用超过 N 个商户时告警', 'notify', 1, 4),
+('order.force_3ds.amount', '500000', 'number', 'order', '订单风控', '大额强制3DS阈值(分)', '订单金额超过此值强制走 3DS，单位：分', '3ds', 1, 5),
 
--- 黑名单配置
+-- 黑名单配置（4 项）
 ('blacklist.card_bin.enabled', 'true', 'boolean', 'blacklist', '黑名单', '启用卡BIN黑名单', '', 'reject', 1, 1),
 ('blacklist.ip.enabled', 'true', 'boolean', 'blacklist', '黑名单', '启用IP黑名单', '', 'reject', 1, 2),
 ('blacklist.email.enabled', 'true', 'boolean', 'blacklist', '黑名单', '启用邮箱黑名单', '', 'reject', 1, 3),
 ('blacklist.device.enabled', 'true', 'boolean', 'blacklist', '黑名单', '启用设备指纹黑名单', '', 'reject', 1, 4),
 
--- 通知配置
+-- 通知配置（5 项）
 ('notify.telegram.enabled', 'false', 'boolean', 'notify', '通知', '启用Telegram通知', '', 'notify', 1, 1),
 ('notify.telegram.bot_token', '', 'string', 'notify', '通知', 'Telegram Bot Token', '', 'notify', 1, 2),
 ('notify.telegram.chat_id', '', 'string', 'notify', '通知', 'Telegram Chat ID', '', 'notify', 1, 3),
 ('notify.email.enabled', 'false', 'boolean', 'notify', '通知', '启用邮件通知', '', 'notify', 1, 4),
 ('notify.email.recipients', '', 'string', 'notify', '通知', '邮件接收人(逗号分隔)', '', 'notify', 1, 5);
+
+
+-- ============================================
+-- 11. 风险告警日志表（任务 #16）
+-- 用途：
+--   - 记录每条告警的最终投递结果，便于事后排查
+--   - 重试 3 次仍失败的告警以失败状态写入，避免静默丢失
+-- ============================================
+DROP TABLE IF EXISTS `t_risk_alert_log`;
+CREATE TABLE `t_risk_alert_log` (
+  `log_id`        BIGINT       NOT NULL AUTO_INCREMENT COMMENT '日志ID',
+  `alert_type`    VARCHAR(64)  NOT NULL COMMENT '告警类型（RiskAlertType 枚举名）',
+  `channel`       VARCHAR(32)  NOT NULL COMMENT '通道：telegram / email',
+  `target`        VARCHAR(256)          DEFAULT NULL COMMENT '目标地址：Telegram chat_id 或邮箱',
+  `title`         VARCHAR(256)          DEFAULT NULL COMMENT '告警标题',
+  `content`       TEXT                  DEFAULT NULL COMMENT '告警正文',
+  `state`         TINYINT      NOT NULL DEFAULT 0 COMMENT '0-失败 1-成功',
+  `retry_count`   INT          NOT NULL DEFAULT 0 COMMENT '已重试次数',
+  `error_msg`     VARCHAR(1024)         DEFAULT NULL COMMENT '失败原因（最近一次）',
+  `created_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (`log_id`),
+  KEY `idx_alert_type` (`alert_type`),
+  KEY `idx_state_created` (`state`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='风险告警投递日志';
+
+
+-- ============================================
+-- 12. 告警目标人员配置（任务 #16）
+-- 设计：复用 t_sys_config 存模板，t_risk_threshold_config 存触达目标
+-- 为什么：模板内容多变（含 Markdown），用 JSON 存在 sys_config 更顺手；
+--         触达目标是简单字符串，放阈值配置表跟阈值同步维护
+-- key 规范：risk_alert_template_{TYPE 小写}  -> JSON: {"title":"","body":""}
+--         notify.targets.{TYPE 小写}        -> 字符串："chatId1,chatId2|email1,email2"
+-- ============================================
+INSERT INTO `t_risk_threshold_config` (config_key, config_value, value_type, group_key, group_name, config_name, config_desc, action_type, action_enabled, sort_num) VALUES
+('notify.targets.chargeback_yellow_line',  '', 'string', 'notify', '通知', '拒付黄线告警目标', '格式：tgChatIds|emails，例："123456|ops@x.com,risk@x.com"', 'notify', 1, 10),
+('notify.targets.chargeback_red_line',     '', 'string', 'notify', '通知', '拒付红线告警目标', '', 'notify', 1, 11),
+('notify.targets.merchant_suspended',      '', 'string', 'notify', '通知', '商户被暂停告警目标', '', 'notify', 1, 12),
+('notify.targets.channel_account_throttled','', 'string', 'notify', '通知', '通道账号被限流告警目标', '', 'notify', 1, 13),
+('notify.targets.high_frequency_card',     '', 'string', 'notify', '通知', '高频用卡告警目标', '', 'notify', 1, 14),
+('notify.targets.daily_volume_spike',      '', 'string', 'notify', '通知', '日交易突增告警目标', '', 'notify', 1, 15),
+('notify.targets.agent_frozen',            '', 'string', 'notify', '通知', '代理商冻结告警目标', '', 'notify', 1, 16);
 
 
 SET FOREIGN_KEY_CHECKS = 1;

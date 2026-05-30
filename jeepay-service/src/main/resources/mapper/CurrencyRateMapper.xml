@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  汇率表 SQL
+  关键设计：
+  - 同一币种对在不同时间点存在多个汇率版本，按 effective_time 倒序取最新
+  - 退款按下单时的历史汇率结算，避免汇率波动导致损失
+-->
+<mapper namespace="com.jeequan.jeepay.service.mapper.CurrencyRateMapper">
+
+    <resultMap id="BaseResultMap" type="com.jeequan.jeepay.core.entity.CurrencyRate">
+        <id column="id" property="id"/>
+        <result column="base_currency" property="baseCurrency"/>
+        <result column="target_currency" property="targetCurrency"/>
+        <result column="rate" property="rate"/>
+        <result column="rate_source" property="rateSource"/>
+        <result column="effective_time" property="effectiveTime"/>
+        <result column="expire_time" property="expireTime"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, base_currency, target_currency, rate, rate_source,
+        effective_time, expire_time, created_at, updated_at
+    </sql>
+
+    <!--
+      查询最新汇率
+      rateSource 可选：若指定则按源查；未指定则取生效时间最新的一条
+      effective_time &lt;= NOW() 保证已生效
+      (expire_time IS NULL OR expire_time &gt; NOW()) 保证未过期
+    -->
+    <select id="selectLatestRate" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM t_currency_rate
+        WHERE base_currency = #{baseCurrency}
+          AND target_currency = #{targetCurrency}
+          AND effective_time &lt;= NOW()
+          AND (expire_time IS NULL OR expire_time &gt; NOW())
+        <if test="rateSource != null and rateSource != ''">
+            AND rate_source = #{rateSource}
+        </if>
+        ORDER BY effective_time DESC
+        LIMIT 1
+    </select>
+
+    <!--
+      按时间点查询历史汇率（用于退款按下单时汇率）
+      取 effective_time &lt;= targetTime 的最近一条
+    -->
+    <select id="selectRateByTime" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM t_currency_rate
+        WHERE base_currency = #{baseCurrency}
+          AND target_currency = #{targetCurrency}
+          AND effective_time &lt;= #{targetTime}
+        ORDER BY effective_time DESC
+        LIMIT 1
+    </select>
+
+    <!-- 历史汇率分页 -->
+    <select id="selectRatePage" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM t_currency_rate
+        <where>
+            <if test="baseCurrency != null and baseCurrency != ''">
+                AND base_currency = #{baseCurrency}
+            </if>
+            <if test="targetCurrency != null and targetCurrency != ''">
+                AND target_currency = #{targetCurrency}
+            </if>
+            <if test="rateSource != null and rateSource != ''">
+                AND rate_source = #{rateSource}
+            </if>
+        </where>
+        ORDER BY effective_time DESC
+    </select>
+
+</mapper>

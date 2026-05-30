@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  代理商信息 SQL
+  关键设计：
+  - 父子关系通过 parent_agent_no 自关联，最多 3 级
+  - 分页查询关联上级名称，便于前端展示
+-->
+<mapper namespace="com.jeequan.jeepay.service.mapper.AgentInfoMapper">
+
+    <resultMap id="BaseResultMap" type="com.jeequan.jeepay.core.entity.AgentInfo">
+        <id column="agent_no" property="agentNo"/>
+        <result column="agent_name" property="agentName"/>
+        <result column="agent_short_name" property="agentShortName"/>
+        <result column="contact_name" property="contactName"/>
+        <result column="contact_tel" property="contactTel"/>
+        <result column="contact_email" property="contactEmail"/>
+        <result column="parent_agent_no" property="parentAgentNo"/>
+        <result column="agent_level" property="agentLevel"/>
+        <result column="profit_rate" property="profitRate"/>
+        <result column="settlement_cycle" property="settlementCycle"/>
+        <result column="min_settlement_amount" property="minSettlementAmount"/>
+        <result column="state" property="state"/>
+        <result column="remark" property="remark"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        agent_no, agent_name, agent_short_name, contact_name, contact_tel, contact_email,
+        parent_agent_no, agent_level, profit_rate, settlement_cycle, min_settlement_amount,
+        state, remark, created_at, updated_at
+    </sql>
+
+    <!--
+      分页查询：LEFT JOIN 自身表取上级代理商名
+      为什么 LEFT JOIN：一级代理 parent_agent_no 为 NULL，INNER JOIN 会丢数据
+    -->
+    <select id="selectAgentPage" resultType="java.util.HashMap">
+        SELECT
+            a.agent_no AS agentNo,
+            a.agent_name AS agentName,
+            a.agent_short_name AS agentShortName,
+            a.contact_name AS contactName,
+            a.contact_tel AS contactTel,
+            a.contact_email AS contactEmail,
+            a.parent_agent_no AS parentAgentNo,
+            p.agent_name AS parentAgentName,
+            a.agent_level AS agentLevel,
+            a.profit_rate AS profitRate,
+            a.settlement_cycle AS settlementCycle,
+            a.min_settlement_amount AS minSettlementAmount,
+            a.state AS state,
+            a.remark AS remark,
+            a.created_at AS createdAt,
+            a.updated_at AS updatedAt
+        FROM t_agent_info a
+        LEFT JOIN t_agent_info p ON p.agent_no = a.parent_agent_no
+        <where>
+            <if test="agentName != null and agentName != ''">
+                AND a.agent_name LIKE CONCAT('%', #{agentName}, '%')
+            </if>
+            <if test="agentLevel != null">
+                AND a.agent_level = #{agentLevel}
+            </if>
+            <if test="state != null">
+                AND a.state = #{state}
+            </if>
+            <if test="parentAgentNo != null and parentAgentNo != ''">
+                AND a.parent_agent_no = #{parentAgentNo}
+            </if>
+        </where>
+        ORDER BY a.created_at DESC
+    </select>
+
+    <!-- 查询直接下级代理 -->
+    <select id="selectChildren" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM t_agent_info
+        WHERE parent_agent_no = #{parentAgentNo}
+          AND state = 1
+        ORDER BY agent_level ASC, created_at ASC
+    </select>
+
+    <!--
+      查询代理链：当前 + 上级 + 上上级（最多 3 级）
+      使用 UNION 避免递归 CTE 兼容性问题（MySQL 5.7 不支持）
+    -->
+    <select id="selectAgentChain" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/> FROM t_agent_info WHERE agent_no = #{agentNo}
+        UNION
+        SELECT <include refid="Base_Column_List"/> FROM t_agent_info
+        WHERE agent_no = (SELECT parent_agent_no FROM t_agent_info WHERE agent_no = #{agentNo})
+        UNION
+        SELECT <include refid="Base_Column_List"/> FROM t_agent_info
+        WHERE agent_no = (
+            SELECT parent_agent_no FROM t_agent_info
+            WHERE agent_no = (SELECT parent_agent_no FROM t_agent_info WHERE agent_no = #{agentNo})
+        )
+    </select>
+
+</mapper>

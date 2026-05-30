@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  币种配置 SQL
+  注意事项：
+  - currency 为 ISO 4217 三字母代码，已作为主键
+  - 启用列表通常缓存到内存，避免每次下单都查表
+-->
+<mapper namespace="com.jeequan.jeepay.service.mapper.CurrencyConfigMapper">
+
+    <resultMap id="BaseResultMap" type="com.jeequan.jeepay.core.entity.CurrencyConfig">
+        <id column="currency" property="currency"/>
+        <result column="currency_name" property="currencyName"/>
+        <result column="currency_symbol" property="currencySymbol"/>
+        <result column="decimal_places" property="decimalPlaces"/>
+        <result column="min_amount" property="minAmount"/>
+        <result column="max_amount" property="maxAmount"/>
+        <result column="state" property="state"/>
+        <result column="sort_num" property="sortNum"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        currency, currency_name, currency_symbol, decimal_places,
+        min_amount, max_amount, state, sort_num, created_at, updated_at
+    </sql>
+
+    <!-- 全部启用币种 -->
+    <select id="selectEnabledList" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM t_currency_config
+        WHERE state = 1
+        ORDER BY sort_num ASC, currency ASC
+    </select>
+
+    <!--
+      按币种代码列表查询
+      用于商户配置 support_currencies 时校验合法性
+    -->
+    <select id="selectByCurrencies" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM t_currency_config
+        WHERE state = 1
+          AND currency IN
+          <foreach collection="currencies" item="c" open="(" separator="," close=")">
+              #{c}
+          </foreach>
+        ORDER BY sort_num ASC
+    </select>
+
+</mapper>

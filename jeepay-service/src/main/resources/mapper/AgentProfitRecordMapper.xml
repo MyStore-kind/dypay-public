@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  代理商分润记录 SQL
+  关键设计：
+  - 仅允许 state=0(待结算) -> state=1(已结算) 的迁移，幂等保护
+  - 批量结算时按 settle_date 聚合，避免单笔慢
+-->
+<mapper namespace="com.jeequan.jeepay.service.mapper.AgentProfitRecordMapper">
+
+    <resultMap id="BaseResultMap" type="com.jeequan.jeepay.core.entity.AgentProfitRecord">
+        <id column="record_id" property="recordId"/>
+        <result column="agent_no" property="agentNo"/>
+        <result column="mch_no" property="mchNo"/>
+        <result column="pay_order_id" property="payOrderId"/>
+        <result column="order_amount" property="orderAmount"/>
+        <result column="order_currency" property="orderCurrency"/>
+        <result column="profit_amount" property="profitAmount"/>
+        <result column="profit_currency" property="profitCurrency"/>
+        <result column="profit_rate" property="profitRate"/>
+        <result column="state" property="state"/>
+        <result column="settle_date" property="settleDate"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        record_id, agent_no, mch_no, pay_order_id, order_amount, order_currency,
+        profit_amount, profit_currency, profit_rate, state, settle_date, created_at, updated_at
+    </sql>
+
+    <!-- 分页查询分润记录（关联代理商名） -->
+    <select id="selectProfitPage" resultType="java.util.HashMap">
+        SELECT
+            r.record_id AS recordId,
+            r.agent_no AS agentNo,
+            a.agent_name AS agentName,
+            r.mch_no AS mchNo,
+            r.pay_order_id AS payOrderId,
+            r.order_amount AS orderAmount,
+            r.order_currency AS orderCurrency,
+            r.profit_amount AS profitAmount,
+            r.profit_currency AS profitCurrency,
+            r.profit_rate AS profitRate,
+            r.state AS state,
+            r.settle_date AS settleDate,
+            r.created_at AS createdAt
+        FROM t_agent_profit_record r
+        LEFT JOIN t_agent_info a ON a.agent_no = r.agent_no
+        <where>
+            <if test="agentNo != null and agentNo != ''">
+                AND r.agent_no = #{agentNo}
+            </if>
+            <if test="mchNo != null and mchNo != ''">
+                AND r.mch_no = #{mchNo}
+            </if>
+            <if test="state != null">
+                AND r.state = #{state}
+            </if>
+            <if test="startDate != null">
+                AND r.created_at &gt;= #{startDate}
+            </if>
+            <if test="endDate != null">
+                AND r.created_at &lt; #{endDate}
+            </if>
+        </where>
+        ORDER BY r.created_at DESC
+    </select>
+
+    <!--
+      按结算日期聚合统计
+      返回字段：settle_date, total_amount, profit_amount, record_count
+    -->
+    <select id="aggregateBySettleDate" resultType="java.util.HashMap">
+        SELECT
+            settle_date AS settleDate,
+            profit_currency AS profitCurrency,
+            COUNT(*) AS recordCount,
+            SUM(order_amount) AS totalOrderAmount,
+            SUM(profit_amount) AS totalProfitAmount
+        FROM t_agent_profit_record
+        <where>
+            <if test="agentNo != null and agentNo != ''">
+                AND agent_no = #{agentNo}
+            </if>
+            <if test="state != null">
+                AND state = #{state}
+            </if>
+            <if test="startDate != null">
+                AND settle_date &gt;= #{startDate}
+            </if>
+            <if test="endDate != null">
+                AND settle_date &lt; #{endDate}
+            </if>
+        </where>
+        GROUP BY settle_date, profit_currency
+        ORDER BY settle_date DESC
+    </select>
+
+    <!--
+      批量更新状态（带源状态校验，避免重复结算）
+      WHERE state = fromState 保证幂等
+    -->
+    <update id="batchUpdateState">
+        UPDATE t_agent_profit_record
+        SET state = #{targetState}, updated_at = NOW(3)
+        WHERE state = #{fromState}
+          AND record_id IN
+          <foreach collection="recordIds" item="id" open="(" separator="," close=")">
+              #{id}
+          </foreach>
+    </update>
+
+</mapper>

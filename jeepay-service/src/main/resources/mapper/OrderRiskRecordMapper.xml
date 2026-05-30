@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  订单风控记录 SQL
+  关键设计：
+  - 高频卡号/IP 检测使用滑动窗口，由参数控制
+  - idx_card_bin/idx_ip_time/idx_email 索引保障实时性
+-->
+<mapper namespace="com.jeequan.jeepay.service.mapper.OrderRiskRecordMapper">
+
+    <resultMap id="BaseResultMap" type="com.jeequan.jeepay.core.entity.OrderRiskRecord">
+        <id column="id" property="id"/>
+        <result column="pay_order_id" property="payOrderId"/>
+        <result column="mch_no" property="mchNo"/>
+        <result column="account_id" property="accountId"/>
+        <result column="risk_score" property="riskScore"/>
+        <result column="risk_action" property="riskAction"/>
+        <result column="risk_factors" property="riskFactors"/>
+        <result column="ip" property="ip"/>
+        <result column="ip_country" property="ipCountry"/>
+        <result column="ip_risk_level" property="ipRiskLevel"/>
+        <result column="device_fingerprint" property="deviceFingerprint"/>
+        <result column="user_agent" property="userAgent"/>
+        <result column="card_bin" property="cardBin"/>
+        <result column="card_last4" property="cardLast4"/>
+        <result column="card_country" property="cardCountry"/>
+        <result column="card_type" property="cardType"/>
+        <result column="card_brand" property="cardBrand"/>
+        <result column="buyer_email" property="buyerEmail"/>
+        <result column="buyer_phone" property="buyerPhone"/>
+        <result column="buyer_name" property="buyerName"/>
+        <result column="three_ds_triggered" property="threeDsTriggered"/>
+        <result column="three_ds_result" property="threeDsResult"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, pay_order_id, mch_no, account_id, risk_score, risk_action, risk_factors,
+        ip, ip_country, ip_risk_level, device_fingerprint, user_agent,
+        card_bin, card_last4, card_country, card_type, card_brand,
+        buyer_email, buyer_phone, buyer_name,
+        three_ds_triggered, three_ds_result, created_at
+    </sql>
+
+    <!-- 按订单号查询（唯一索引，命中快） -->
+    <select id="selectByPayOrderId" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM t_order_risk_record
+        WHERE pay_order_id = #{payOrderId}
+        LIMIT 1
+    </select>
+
+    <!--
+      高频卡号检测：同卡 N 分钟窗口内的笔数
+      注意：使用 card_bin+card_last4 模糊识别同卡，PCI 合规
+    -->
+    <select id="countSameCardInWindow" resultType="java.lang.Integer">
+        SELECT COUNT(*) FROM t_order_risk_record
+        WHERE card_bin = #{cardBin}
+          AND card_last4 = #{cardLast4}
+          AND created_at &gt;= DATE_SUB(NOW(), INTERVAL #{windowMinutes} MINUTE)
+    </select>
+
+    <!-- 同 IP 高频检测 -->
+    <select id="countSameIpInWindow" resultType="java.lang.Integer">
+        SELECT COUNT(*) FROM t_order_risk_record
+        WHERE ip = #{ip}
+          AND created_at &gt;= DATE_SUB(NOW(), INTERVAL #{windowMinutes} MINUTE)
+    </select>
+
+    <!--
+      按风控动作聚合（pass/3ds/reject）
+      返回字段：risk_action, count
+    -->
+    <select id="countByRiskAction" resultType="java.util.HashMap">
+        SELECT
+            risk_action AS riskAction,
+            COUNT(*) AS cnt
+        FROM t_order_risk_record
+        WHERE created_at &gt;= DATE_SUB(NOW(), INTERVAL #{days} DAY)
+        <if test="mchNo != null and mchNo != ''">
+            AND mch_no = #{mchNo}
+        </if>
+        GROUP BY risk_action
+    </select>
+
+</mapper>
