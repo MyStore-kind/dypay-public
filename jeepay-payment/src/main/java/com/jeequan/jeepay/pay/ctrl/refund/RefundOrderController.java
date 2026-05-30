@@ -37,6 +37,12 @@ import com.jeequan.jeepay.pay.service.ConfigContextService;
 import com.jeequan.jeepay.pay.service.PayMchNotifyService;
 import com.jeequan.jeepay.service.impl.PayOrderService;
 import com.jeequan.jeepay.service.impl.RefundOrderService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -54,6 +60,7 @@ import java.util.Date;
 */
 @Slf4j
 @RestController
+@Tag(name = "03-退款", description = "商户对外申请退款（支持部分退款 / 多币种）")
 public class RefundOrderController extends ApiController {
 
     @Autowired private PayOrderService payOrderService;
@@ -63,6 +70,18 @@ public class RefundOrderController extends ApiController {
 
 
     /** 申请退款 **/
+    @Operation(
+            summary = "申请退款",
+            description = "对支付成功订单发起退款，支持部分退款；退款金额 + 已退金额不得超过订单金额。" +
+                    "退款币种与支付订单币种保持一致。退款结果通过商户回调地址异步通知。"
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "退款受理成功",
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(value = "{\"code\":0,\"msg\":\"SUCCESS\",\"data\":{\"refundOrderId\":\"R1700000000001\",\"mchRefundNo\":\"MR001\",\"state\":1,\"refundAmount\":500,\"currency\":\"USD\"}}"))),
+            @ApiResponse(responseCode = "400", description = "订单不存在 / 状态错误 / 金额校验失败"),
+            @ApiResponse(responseCode = "500", description = "系统异常")
+    })
     @PostMapping("/api/refund/refundOrder")
     public ApiRes refundOrder(){
 

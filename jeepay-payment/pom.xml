@@ -145,6 +145,28 @@
             <artifactId>jeepay-sdk-java</artifactId>
             <version>pls-1.3.0</version>
         </dependency>
+
+        <!-- Springdoc OpenAPI（任务 #10） -->
+        <!-- 为什么：基于 OpenAPI 3.0 暴露商户对外接口文档，含国际化反风控扩展字段；与 Knife4j 共存，前者提供 /v3/api-docs 与 swagger-ui，后者提供中文 UI 增强 -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>2.6.0</version>
+        </dependency>
+
+        <!--
+          可观测性（任务 #12）：actuator + Prometheus 指标导出。
+          注意：payment 网关是核心高并发路径，开启 /actuator/prometheus 需在 yml
+          中限制 management.server.port 仅内网监听，避免外网抓取。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
     </dependencies>
 
 

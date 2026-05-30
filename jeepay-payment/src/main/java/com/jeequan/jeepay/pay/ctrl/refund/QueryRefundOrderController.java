@@ -24,6 +24,12 @@ import com.jeequan.jeepay.pay.rqrs.refund.QueryRefundOrderRS;
 import com.jeequan.jeepay.pay.service.ConfigContextQueryService;
 import com.jeequan.jeepay.pay.service.ConfigContextService;
 import com.jeequan.jeepay.service.impl.RefundOrderService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,6 +45,7 @@ import org.springframework.web.bind.annotation.RestController;
 */
 @Slf4j
 @RestController
+@Tag(name = "04-退款查询", description = "商户对外查询退款单状态")
 public class QueryRefundOrderController extends ApiController {
 
     @Autowired private RefundOrderService refundOrderService;
@@ -47,6 +54,18 @@ public class QueryRefundOrderController extends ApiController {
     /**
      * 查单接口
      * **/
+    @Operation(
+            summary = "查询退款单",
+            description = "根据 refundOrderId 或 mchRefundNo 查询退款单当前状态。" +
+                    "拒付（chargeback）发生时，退款记录会同步更新 chargeback_status 字段（详见 Webhook 协议规范）。"
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "查询成功",
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(value = "{\"code\":0,\"msg\":\"SUCCESS\",\"data\":{\"refundOrderId\":\"R1700000000001\",\"state\":2,\"refundAmount\":500,\"currency\":\"USD\",\"successTime\":\"2026-05-30 13:00:00\"}}"))),
+            @ApiResponse(responseCode = "400", description = "参数缺失或退款单不存在"),
+            @ApiResponse(responseCode = "500", description = "系统异常")
+    })
     @RequestMapping("/api/refund/query")
     public ApiRes queryRefundOrder(){
 

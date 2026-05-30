@@ -24,6 +24,12 @@ import com.jeequan.jeepay.pay.rqrs.payorder.QueryPayOrderRS;
 import com.jeequan.jeepay.pay.service.ConfigContextQueryService;
 import com.jeequan.jeepay.pay.service.ConfigContextService;
 import com.jeequan.jeepay.service.impl.PayOrderService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,6 +45,7 @@ import org.springframework.web.bind.annotation.RestController;
 */
 @Slf4j
 @RestController
+@Tag(name = "02-查询订单", description = "商户对外查询支付订单状态")
 public class QueryOrderController extends ApiController {
 
     @Autowired private PayOrderService payOrderService;
@@ -47,6 +54,18 @@ public class QueryOrderController extends ApiController {
     /**
      * 查单接口
      * **/
+    @Operation(
+            summary = "查询订单",
+            description = "根据 payOrderId 或 mchOrderNo 查询订单当前状态，返回包含币种、金额、订单状态、支付成功时间等。" +
+                    "国际化场景下响应包含 currency 字段（ISO 4217）。"
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "查询成功",
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(value = "{\"code\":0,\"msg\":\"SUCCESS\",\"data\":{\"payOrderId\":\"P1700000000001\",\"mchOrderNo\":\"M001\",\"amount\":1999,\"currency\":\"USD\",\"state\":2,\"successTime\":\"2026-05-30 12:00:00\"}}"))),
+            @ApiResponse(responseCode = "400", description = "参数缺失或订单不存在"),
+            @ApiResponse(responseCode = "500", description = "系统异常")
+    })
     @RequestMapping("/api/pay/query")
     public ApiRes queryOrder(){
 

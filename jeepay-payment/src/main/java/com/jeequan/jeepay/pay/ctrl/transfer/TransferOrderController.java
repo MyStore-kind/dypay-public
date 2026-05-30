@@ -35,6 +35,12 @@ import com.jeequan.jeepay.pay.service.ConfigContextService;
 import com.jeequan.jeepay.pay.service.PayMchNotifyService;
 import com.jeequan.jeepay.service.impl.PayInterfaceConfigService;
 import com.jeequan.jeepay.service.impl.TransferOrderService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,6 +58,7 @@ import java.util.Date;
 */
 @Slf4j
 @RestController
+@Tag(name = "05-转账", description = "商户对外发起转账（如启用此能力）")
 public class TransferOrderController extends ApiController {
 
     @Autowired private ConfigContextQueryService configContextQueryService;
@@ -62,6 +69,18 @@ public class TransferOrderController extends ApiController {
     /**
      * 转账
      * **/
+    @Operation(
+            summary = "发起转账",
+            description = "支持多种入账方式（银行卡、电子钱包等），多币种 currency。" +
+                    "转账结果异步通过 notifyUrl 回调通知。"
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "转账受理成功",
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(value = "{\"code\":0,\"msg\":\"SUCCESS\",\"data\":{\"transferId\":\"T1700000000001\",\"mchOrderNo\":\"TM001\",\"state\":1,\"amount\":10000,\"currency\":\"USD\"}}"))),
+            @ApiResponse(responseCode = "400", description = "商户订单号重复 / 通道未配置 / 入账方式不支持"),
+            @ApiResponse(responseCode = "500", description = "系统异常")
+    })
     @PostMapping("/api/transferOrder")
     public ApiRes transferOrder(){
 

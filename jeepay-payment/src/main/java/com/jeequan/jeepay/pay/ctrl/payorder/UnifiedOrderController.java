@@ -26,6 +26,12 @@ import com.jeequan.jeepay.pay.rqrs.payorder.UnifiedOrderRS;
 import com.jeequan.jeepay.pay.rqrs.payorder.payway.AutoBarOrderRQ;
 import com.jeequan.jeepay.pay.service.ConfigContextQueryService;
 import com.jeequan.jeepay.service.impl.PayWayService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,6 +47,7 @@ import org.springframework.web.bind.annotation.RestController;
 */
 @Slf4j
 @RestController
+@Tag(name = "01-统一下单", description = "商户对外统一下单接口（多币种 + 反风控扩展）")
 public class UnifiedOrderController extends AbstractPayOrderController {
 
     @Autowired private PayWayService payWayService;
@@ -49,6 +56,24 @@ public class UnifiedOrderController extends AbstractPayOrderController {
     /**
      * 统一下单接口
      * **/
+    @Operation(
+            summary = "统一下单（多币种）",
+            description = "聚合多种支付方式（Stripe/PayPal/微信/支付宝/银联）的统一下单入口。" +
+                    "支持多币种 currency（ISO 4217 三位字母）、可携带国际化反风控字段（设备指纹、IP 国家、卡 BIN 等）。" +
+                    "鉴权：Body 内 mchNo + appId + sign（MD5/RSA）。"
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "下单成功 / 已生成订单",
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(name = "成功",
+                                    value = "{\"code\":0,\"msg\":\"SUCCESS\",\"data\":{\"payOrderId\":\"P1700000000001\",\"orderState\":1,\"payDataType\":\"payUrl\",\"payData\":\"https://checkout.stripe.com/c/pay/xxx\"},\"sign\":\"...\"}"))),
+            @ApiResponse(responseCode = "400", description = "参数校验失败 / 签名错误",
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(value = "{\"code\":1001,\"msg\":\"签名错误\"}"))),
+            @ApiResponse(responseCode = "500", description = "系统异常",
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(value = "{\"code\":9999,\"msg\":\"系统异常\"}")))
+    })
     @PostMapping("/api/pay/unifiedOrder")
     public ApiRes unifiedOrder(){
 

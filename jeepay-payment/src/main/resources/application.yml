@@ -8,17 +8,26 @@ spring:
     redis:
       database: 3    #1库：运营平台  #2库：商户系统 #3库：支付网关
 
-# knife4j APIDOC文档
+# OpenAPI / Knife4j APIDOC 文档
+# 任务 #10：仅在 dev / test profile 启用 Springdoc，避免生产环境元数据泄漏
 springdoc:
-  swagger-ui:
-    path: /swagger-ui.html
   api-docs:
+    enabled: ${SPRINGDOC_ENABLED:true}   # 生产环境通过环境变量 SPRINGDOC_ENABLED=false 关闭
     path: /v3/api-docs
+  swagger-ui:
+    enabled: ${SPRINGDOC_ENABLED:true}
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
   group-configs:
     - group: 'default'
       display-name: '支付网关'
       paths-to-match: '/**'
       packages-to-scan: com.jeequan.jeepay.pay.ctrl.test
+    - group: 'merchant-api'
+      display-name: '商户对外接口（国际四方）'
+      paths-to-match: '/api/**'
+      packages-to-scan: com.jeequan.jeepay.pay.ctrl.payorder,com.jeequan.jeepay.pay.ctrl.refund,com.jeequan.jeepay.pay.ctrl.transfer
 knife4j:
   enable: true
   setting:
