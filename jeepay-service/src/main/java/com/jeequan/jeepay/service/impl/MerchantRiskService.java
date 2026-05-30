@@ -110,6 +110,71 @@ public class MerchantRiskService extends ServiceImpl<MerchantRiskScoreMapper, Me
         return MerchantRiskScore.TIER_LOW;
     }
 
+    /**
+     * 基于真实订单数据计算并保存商户当天评分
+     * 由 RiskControlScheduleTask 每日凌晨调用
+     *
+     * 流程：
+     * - 从 t_pay_order / t_refund_order / t_chargeback_record 聚合最近 30 天数据
+     * - 计算各项比率
+     * - 走 calculateScore 加权评分
+     * - 落库 t_merchant_risk_score（同一商户当日 UNIQUE 约束保证唯一）
+     */
+    public MerchantRiskScore evaluateAndSaveDailyScore(String mchNo) {
+        Date now = new Date();
+        Date startTime = new Date(now.getTime() - 30L * 86400_000L);
+
+        Map<String, Object> metrics = baseMapper.aggregateMerchantMetrics(mchNo, startTime, now);
+        int total = toInt(metrics, "total");
+        int success = toInt(metrics, "success");
+        long totalAmount = toLong(metrics, "total_amount");
+        int refundCount = toInt(metrics, "refund_count");
+
+        Integer chargebackCountObj = baseMapper.countMerchantChargebacks(mchNo, startTime, now);
+        int chargebackCount = chargebackCountObj == null ? 0 : chargebackCountObj;
+
+        BigDecimal successRate = ratePercent(success, total);
+        BigDecimal chargebackRate = ratePercent(chargebackCount, success);
+        BigDecimal refundRate = ratePercent(refundCount, success);
+        // 投诉率与拒付率口径相同（dispute 表未独立）；高风险卡占比暂为 0，待 OrderRiskRecord 维度增强
+        BigDecimal disputeRate = chargebackRate;
+        BigDecimal highRiskCardRate = BigDecimal.ZERO;
+
+        MerchantRiskScore score = calculateScore(mchNo, chargebackRate, disputeRate, refundRate,
+                successRate, highRiskCardRate, total, totalAmount, null);
+
+        // 去除当日已有的旧记录（防止重复跑任务时重复入库）
+        baseMapper.delete(MerchantRiskScore.gw()
+                .eq(MerchantRiskScore::getMchNo, mchNo)
+                .eq(MerchantRiskScore::getScoreDate, score.getScoreDate()));
+        save(score);
+        return score;
+    }
+
+    // ===== 数据类型转换辅助 =====
+
+    private int toInt(Map<String, Object> m, String key) {
+        if (m == null) return 0;
+        Object v = m.get(key);
+        if (v == null) return 0;
+        if (v instanceof Number) return ((Number) v).intValue();
+        try { return Integer.parseInt(v.toString()); } catch (Exception e) { return 0; }
+    }
+
+    private long toLong(Map<String, Object> m, String key) {
+        if (m == null) return 0L;
+        Object v = m.get(key);
+        if (v == null) return 0L;
+        if (v instanceof Number) return ((Number) v).longValue();
+        try { return Long.parseLong(v.toString()); } catch (Exception e) { return 0L; }
+    }
+
+    private BigDecimal ratePercent(int numerator, int denominator) {
+        if (denominator == 0) return BigDecimal.ZERO;
+        return new BigDecimal(numerator).multiply(new BigDecimal(100))
+                .divide(new BigDecimal(denominator), 4, RoundingMode.HALF_UP);
+    }
+
     private String toJson(Map<String, Object> map) {
         StringBuilder sb = new StringBuilder("{");
         boolean first = true;

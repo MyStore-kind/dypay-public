@@ -87,6 +87,45 @@ public class UnifiedOrderRQ extends AbstractMchAppRQ {
     @Range(min = 0, max = 2, message = "分账模式设置值有误")
     private Byte divisionMode;
 
+    // ===== 国际四方扩展：买家与设备信息（用于风控评分） =====
+    // 这些字段全部可选，缺失时风控按 PASS 处理
+
+    /** 买家邮箱（用于黑名单 / 一次性邮箱识别） */
+    private String buyerEmail;
+
+    /** 买家手机 */
+    private String buyerPhone;
+
+    /** 买家姓名（拒付证据） */
+    private String buyerName;
+
+    /** 客户端国家代码 ISO 3166-1 alpha-2（如 US/JP） */
+    private String ipCountry;
+
+    /** 客户端 IP 风险等级（low/mid/high，可对接第三方风险库） */
+    private String ipRiskLevel;
+
+    /** 设备指纹（前端 FingerprintJS 等生成） */
+    private String deviceFingerprint;
+
+    /** User Agent */
+    private String userAgent;
+
+    /** 卡 BIN（前 6/8 位）—— 用于卡级别风控 */
+    private String cardBin;
+
+    /** 卡尾号 4 位 */
+    private String cardLast4;
+
+    /** 卡发行国家 */
+    private String cardCountry;
+
+    /** 卡类型 credit/debit/prepaid */
+    private String cardType;
+
+    /** 卡品牌 visa/mastercard/amex */
+    private String cardBrand;
+
     /** 返回真实的bizRQ **/
     public UnifiedOrderRQ buildBizRQ(){
 

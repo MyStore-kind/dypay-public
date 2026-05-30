@@ -5,10 +5,13 @@ package com.jeequan.jeepay.service.schedule;
 
 import com.jeequan.jeepay.core.entity.ChannelAccount;
 import com.jeequan.jeepay.core.entity.ChannelHealthSnapshot;
+import com.jeequan.jeepay.core.entity.MchInfo;
 import com.jeequan.jeepay.service.impl.ChannelAccountService;
 import com.jeequan.jeepay.service.impl.ChannelHealthService;
 import com.jeequan.jeepay.service.impl.ChargebackService;
 import com.jeequan.jeepay.service.impl.CircuitBreakerEngine;
+import com.jeequan.jeepay.service.impl.MchInfoService;
+import com.jeequan.jeepay.service.impl.MerchantRiskService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,6 +49,12 @@ public class RiskControlScheduleTask {
 
     @Autowired
     private ChargebackService chargebackService;
+
+    @Autowired
+    private MchInfoService mchInfoService;
+
+    @Autowired
+    private MerchantRiskService merchantRiskService;
 
     /**
      * 每 5 分钟刷新通道账号实时指标
@@ -113,6 +122,30 @@ public class RiskControlScheduleTask {
             }
         } catch (Exception e) {
             logger.error("[Schedule] 日级快照任务异常", e);
+        }
+    }
+
+    /**
+     * 每天凌晨 2 点为所有启用商户生成风险评分
+     * 注意：错开 1 点的通道快照任务，让 30D 数据先聚合完毕
+     */
+    @Scheduled(cron = "0 0 2 * * *")
+    public void generateDailyMerchantScores() {
+        try {
+            List<MchInfo> mchList = mchInfoService.list();
+            int success = 0, fail = 0;
+            for (MchInfo m : mchList) {
+                try {
+                    merchantRiskService.evaluateAndSaveDailyScore(m.getMchNo());
+                    success++;
+                } catch (Exception e) {
+                    fail++;
+                    logger.error("[Schedule] 商户评分失败 mchNo={}", m.getMchNo(), e);
+                }
+            }
+            logger.info("[Schedule] 商户每日评分完成 总数={} 成功={} 失败={}", mchList.size(), success, fail);
+        } catch (Exception e) {
+            logger.error("[Schedule] 商户评分任务异常", e);
         }
     }
 

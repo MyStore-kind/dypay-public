@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  商户风险评分聚合 SQL
+  说明：仅统计已完成订单（state IN (2,3)），与通道健康度一致
+-->
+<mapper namespace="com.jeequan.jeepay.service.mapper.MerchantRiskScoreMapper">
+
+    <select id="aggregateMerchantMetrics" resultType="java.util.HashMap">
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN po.state = 2 THEN 1 ELSE 0 END) AS success,
+            COALESCE(SUM(CASE WHEN po.state = 2 THEN po.amount ELSE 0 END), 0) AS total_amount,
+            (SELECT COUNT(*) FROM t_refund_order ro
+              INNER JOIN t_pay_order po2 ON po2.pay_order_id = ro.pay_order_id
+              WHERE po2.mch_no = #{mchNo}
+                AND ro.created_at &gt;= #{startTime}
+                AND ro.created_at &lt; #{endTime}
+                AND ro.state = 2) AS refund_count
+        FROM t_pay_order po
+        WHERE po.mch_no = #{mchNo}
+          AND po.created_at &gt;= #{startTime}
+          AND po.created_at &lt; #{endTime}
+          AND po.state IN (2, 3)
+    </select>
+
+    <select id="countMerchantChargebacks" resultType="java.lang.Integer">
+        SELECT COUNT(*) FROM t_chargeback_record
+        WHERE mch_no = #{mchNo}
+          AND created_at &gt;= #{startTime}
+          AND created_at &lt; #{endTime}
+    </select>
+
+</mapper>

@@ -215,11 +215,24 @@ public abstract class AbstractPayOrderController extends ApiController {
                     }
                 }
                 // 2. 订单前置风控（黑名单/卡 BIN/IP/邮箱评分，命中拒绝直接抛 BizException）
-                //    注意：rq 暂未在 PayOrder 中收集买家信息，需上游传入 extraInfo
-                //    后续可通过扩展 UnifiedOrderRQ 增加风控字段
                 if (orderRiskHookService != null) {
                     try {
-                        orderRiskHookService.preCheck(payOrder, null);
+                        // 从 RQ 抽取买家与设备信息组成 extraInfo
+                        com.alibaba.fastjson.JSONObject extra = new com.alibaba.fastjson.JSONObject();
+                        extra.put("ip", bizRQ.getClientIp());
+                        extra.put("ipCountry", bizRQ.getIpCountry());
+                        extra.put("ipRiskLevel", bizRQ.getIpRiskLevel());
+                        extra.put("deviceFingerprint", bizRQ.getDeviceFingerprint());
+                        extra.put("userAgent", bizRQ.getUserAgent());
+                        extra.put("cardBin", bizRQ.getCardBin());
+                        extra.put("cardLast4", bizRQ.getCardLast4());
+                        extra.put("cardCountry", bizRQ.getCardCountry());
+                        extra.put("cardType", bizRQ.getCardType());
+                        extra.put("cardBrand", bizRQ.getCardBrand());
+                        extra.put("buyerEmail", bizRQ.getBuyerEmail());
+                        extra.put("buyerPhone", bizRQ.getBuyerPhone());
+                        extra.put("buyerName", bizRQ.getBuyerName());
+                        orderRiskHookService.preCheck(payOrder, extra);
                     } catch (BizException be) {
                         throw be; // 风控拒绝必须中断下单
                     } catch (Exception e) {
