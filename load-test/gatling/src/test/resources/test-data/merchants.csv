@@ -1,0 +1,11 @@
+merchantId,merchantName,riskLevel,country,mcc
+M0001,Alpha Store,LOW,US,5411
+M0002,Beta Travel,MEDIUM,GB,4722
+M0003,Gamma Tech,LOW,SG,5734
+M0004,Delta Gaming,HIGH,HK,7995
+M0005,Epsilon Retail,LOW,DE,5311
+M0006,Zeta Crypto,HIGH,KY,6051
+M0007,Eta Education,LOW,AU,8299
+M0008,Theta Forex,HIGH,MT,6211
+M0009,Iota Subscription,MEDIUM,US,5968
+M0010,Kappa Marketplace,MEDIUM,JP,5399

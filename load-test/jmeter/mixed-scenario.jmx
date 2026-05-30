@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- JMeter 混合场景：下单60% + 查询30% + 退款10% -->
+<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.6.3">
+  <hashTree>
+    <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="混合场景压测" enabled="true">
+      <elementProp name="TestPlan.user_defined_variables" elementType="Arguments">
+        <collectionProp name="Arguments.arguments">
+          <elementProp name="BASE_URL" elementType="Argument">
+            <stringProp name="Argument.name">BASE_URL</stringProp>
+            <stringProp name="Argument.value">${__P(baseUrl,http://localhost:8080)}</stringProp>
+          </elementProp>
+        </collectionProp>
+      </elementProp>
+    </TestPlan>
+    <hashTree>
+      <!-- 下单线程组 60% -->
+      <ThreadGroup testname="下单-60%" enabled="true">
+        <stringProp name="ThreadGroup.num_threads">300</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">60</stringProp>
+        <stringProp name="ThreadGroup.duration">600</stringProp>
+      </ThreadGroup>
+      <hashTree>
+        <HTTPSamplerProxy testname="POST /api/v1/orders">
+          <stringProp name="HTTPSampler.path">/api/v1/orders</stringProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+        </HTTPSamplerProxy>
+      </hashTree>
+      <!-- 查询线程组 30% -->
+      <ThreadGroup testname="查询-30%" enabled="true">
+        <stringProp name="ThreadGroup.num_threads">150</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">60</stringProp>
+        <stringProp name="ThreadGroup.duration">600</stringProp>
+      </ThreadGroup>
+      <hashTree>
+        <HTTPSamplerProxy testname="GET /api/v1/orders/{id}">
+          <stringProp name="HTTPSampler.path">/api/v1/orders/${orderId}</stringProp>
+          <stringProp name="HTTPSampler.method">GET</stringProp>
+        </HTTPSamplerProxy>
+      </hashTree>
+      <!-- 退款线程组 10% -->
+      <ThreadGroup testname="退款-10%" enabled="true">
+        <stringProp name="ThreadGroup.num_threads">50</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">60</stringProp>
+        <stringProp name="ThreadGroup.duration">600</stringProp>
+      </ThreadGroup>
+      <hashTree>
+        <HTTPSamplerProxy testname="POST /api/v1/refunds">
+          <stringProp name="HTTPSampler.path">/api/v1/refunds</stringProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+        </HTTPSamplerProxy>
+      </hashTree>
+    </hashTree>
+  </hashTree>
+</jmeterTestPlan>

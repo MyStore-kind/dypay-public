@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- JMeter 备用脚本：统一下单基础压测 -->
+<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.6.3">
+  <hashTree>
+    <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="统一下单压测" enabled="true">
+      <stringProp name="TestPlan.comments">国际支付系统统一下单链路压测</stringProp>
+      <boolProp name="TestPlan.functional_mode">false</boolProp>
+      <boolProp name="TestPlan.serialize_threadgroups">false</boolProp>
+      <elementProp name="TestPlan.user_defined_variables" elementType="Arguments">
+        <collectionProp name="Arguments.arguments">
+          <elementProp name="BASE_URL" elementType="Argument">
+            <stringProp name="Argument.name">BASE_URL</stringProp>
+            <stringProp name="Argument.value">${__P(baseUrl,http://localhost:8080)}</stringProp>
+          </elementProp>
+          <elementProp name="STRIPE_TEST_KEY" elementType="Argument">
+            <stringProp name="Argument.name">STRIPE_TEST_KEY</stringProp>
+            <stringProp name="Argument.value">${__P(stripeKey,${STRIPE_TEST_KEY})}</stringProp>
+          </elementProp>
+        </collectionProp>
+      </elementProp>
+    </TestPlan>
+    <hashTree>
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="下单线程组" enabled="true">
+        <stringProp name="ThreadGroup.num_threads">${__P(threads,500)}</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">120</stringProp>
+        <stringProp name="ThreadGroup.duration">600</stringProp>
+        <boolProp name="ThreadGroup.scheduler">true</boolProp>
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+      </ThreadGroup>
+      <hashTree>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="POST /api/v1/orders" enabled="true">
+          <stringProp name="HTTPSampler.domain">${BASE_URL}</stringProp>
+          <stringProp name="HTTPSampler.path">/api/v1/orders</stringProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <stringProp name="HTTPSampler.postBodyRaw">true</stringProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="" elementType="HTTPArgument">
+                <stringProp name="Argument.value">{"merchantId":"M0001","amount":9900,"currency":"USD"}</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+        </HTTPSamplerProxy>
+        <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="TP95<1s 断言" enabled="true">
+          <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+          <collectionProp name="Asserion.test_strings"><stringProp>200</stringProp></collectionProp>
+        </ResponseAssertion>
+      </hashTree>
+    </hashTree>
+  </hashTree>
+</jmeterTestPlan>
