@@ -22,9 +22,11 @@ import com.jeequan.jeepay.core.constants.CS;
 import com.jeequan.jeepay.core.entity.PayOrder;
 import com.jeequan.jeepay.core.exception.BizException;
 import com.jeequan.jeepay.pay.rqrs.msg.ChannelRetMsg;
+import com.jeequan.jeepay.service.impl.PaySuccessEventListener;
 import com.jeequan.jeepay.service.impl.PayOrderService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,6 +46,9 @@ public class PayOrderProcessService {
     @Autowired private PayMchNotifyService payMchNotifyService;
     @Autowired private IMQSender mqSender;
 
+    // 国际四方扩展：用于发布支付成功事件（触发代理商分润、累加账号额度等）
+    @Autowired private ApplicationEventPublisher eventPublisher;
+
     /** 明确成功的处理逻辑（除更新订单其他业务） **/
     public void confirmSuccess(PayOrder payOrder){
 
@@ -59,6 +64,13 @@ public class PayOrderProcessService {
         //发送商户通知
         payMchNotifyService.payOrderNotify(payOrder);
 
+        // 国际四方扩展：发布支付成功事件
+        // 为什么用事件机制：实现无侵入扩展，避免直接 import 反风控/分润服务造成强耦合
+        try {
+            eventPublisher.publishEvent(new PaySuccessEventListener.PaySuccessEvent(payOrder));
+        } catch (Exception e) {
+            log.error("发布支付成功事件失败 payOrderId={}", payOrder.getPayOrderId(), e);
+        }
     }
 
 

@@ -10,7 +10,6 @@ import com.jeequan.jeepay.pay.model.MchAppConfigContext;
 import com.jeequan.jeepay.pay.rqrs.msg.ChannelRetMsg;
 import com.stripe.model.Event;
 import com.stripe.model.PaymentIntent;
-import com.stripe.model.StripeObject;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.commons.lang3.tuple.MutablePair;
 import org.slf4j.Logger;
@@ -52,7 +51,7 @@ public class StripeChannelNoticeService implements IChannelNoticeService {
      * Stripe Webhook URL 不带订单号，需从 payload 的 metadata 中提取
      *
      * @param urlOrderId 框架传入，Stripe 通道为空
-     * @return [JeePay 订单号, Event 对象]
+     * @return [JeePay 订单号, payload+sig 包装]
      */
     @Override
     public MutablePair<String, Object> parseParams(HttpServletRequest request, String urlOrderId, NoticeTypeEnum noticeTypeEnum) {
@@ -61,23 +60,16 @@ public class StripeChannelNoticeService implements IChannelNoticeService {
             String payload = readRequestBody(request);
             String sigHeader = request.getHeader(STRIPE_SIGNATURE_HEADER);
 
-            // 注意：此处暂时无法校验签名（需要 webhookSecret），
-            // 真正的校验在 doNotice 中根据 mchAppConfigContext 进行
-            Event event = parseEventWithoutVerify(payload);
-            if (event == null) {
-                logger.warn("[Stripe Webhook] payload 解析失败");
-                return null;
-            }
-
-            // 从 metadata 提取 JeePay 订单号
-            String payOrderId = extractPayOrderId(event);
+            // 从 payload 直接提取 JeePay 订单号（不依赖 Stripe SDK 反序列化）
+            // 为什么用 fastjson 直接解析：避免不同版本 SDK 的 ApiResource.GSON 暴露差异
+            String payOrderId = extractPayOrderIdFromPayload(payload);
             if (payOrderId == null) {
-                logger.warn("[Stripe Webhook] 未能提取 jeepay_order_id, eventId={}", event.getId());
+                logger.warn("[Stripe Webhook] 未能提取 jeepay_order_id");
                 return null;
             }
 
             // 将 payload + sigHeader 一起传给 doNotice，便于二次校验
-            StripeNoticeWrapper wrapper = new StripeNoticeWrapper(payload, sigHeader, event);
+            StripeNoticeWrapper wrapper = new StripeNoticeWrapper(payload, sigHeader);
             return MutablePair.of(payOrderId, wrapper);
         } catch (Exception e) {
             logger.error("[Stripe Webhook] 参数解析异常", e);
@@ -164,28 +156,19 @@ public class StripeChannelNoticeService implements IChannelNoticeService {
     }
 
     /**
-     * 不校验签名解析 Event（仅用于提取订单号）
-     * 真正的签名校验在 doNotice 中进行
+     * 从 payload JSON 中直接提取 jeepay 订单号
+     * 路径：data.object.metadata.jeepay_order_id
      */
-    private Event parseEventWithoutVerify(String payload) {
+    private String extractPayOrderIdFromPayload(String payload) {
         try {
-            return com.stripe.net.ApiResource.GSON.fromJson(payload, Event.class);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    /**
-     * 从 Event 中提取 JeePay 订单号
-     */
-    private String extractPayOrderId(Event event) {
-        try {
-            StripeObject obj = event.getDataObjectDeserializer().getObject().orElse(null);
-            if (obj instanceof PaymentIntent) {
-                return ((PaymentIntent) obj).getMetadata().get(StripeConfig.METADATA_PAY_ORDER_ID);
-            }
-            // 其他类型事件（如 Charge）后续按需扩展
-            return null;
+            JSONObject root = JSONObject.parseObject(payload);
+            JSONObject data = root.getJSONObject("data");
+            if (data == null) return null;
+            JSONObject obj = data.getJSONObject("object");
+            if (obj == null) return null;
+            JSONObject metadata = obj.getJSONObject("metadata");
+            if (metadata == null) return null;
+            return metadata.getString(StripeConfig.METADATA_PAY_ORDER_ID);
         } catch (Exception e) {
             return null;
         }
@@ -206,12 +189,10 @@ public class StripeChannelNoticeService implements IChannelNoticeService {
     private static class StripeNoticeWrapper {
         final String payload;
         final String sigHeader;
-        final Event event;
 
-        StripeNoticeWrapper(String payload, String sigHeader, Event event) {
+        StripeNoticeWrapper(String payload, String sigHeader) {
             this.payload = payload;
             this.sigHeader = sigHeader;
-            this.event = event;
         }
     }
 }

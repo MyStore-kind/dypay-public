@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  通道健康度聚合 SQL
+  关键设计：
+  - 仅统计已完成的订单（state in (2, 3)），避免未支付订单干扰
+  - 3DS 通过 t_order_risk_record.three_ds_triggered 关联统计
+  - 金额单位：分（与 PayOrder.amount 一致）
+-->
+<mapper namespace="com.jeequan.jeepay.service.mapper.ChannelHealthSnapshotMapper">
+
+    <!--
+      聚合订单核心指标
+      为什么 LEFT JOIN order_risk_record：3DS 信息在风控记录表里，
+      没有风控记录的订单算作未触发 3DS（COUNT 自动忽略 NULL）
+    -->
+    <select id="aggregatePayOrderMetrics" resultType="java.util.HashMap">
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN po.state = 2 THEN 1 ELSE 0 END) AS success,
+            SUM(CASE WHEN po.state = 3 THEN 1 ELSE 0 END) AS fail,
+            SUM(CASE WHEN orr.three_ds_triggered = 1 THEN 1 ELSE 0 END) AS three_ds,
+            COALESCE(SUM(CASE WHEN po.state = 2 THEN po.amount ELSE 0 END), 0) AS total_amount
+        FROM t_pay_order po
+        LEFT JOIN t_order_risk_record orr ON orr.pay_order_id = po.pay_order_id
+        WHERE po.account_id = #{accountId}
+          AND po.created_at &gt;= #{startTime}
+          AND po.created_at &lt; #{endTime}
+          AND po.state IN (2, 3)
+    </select>
+
+    <!--
+      退款笔数（仅统计成功退款）
+      通过 pay_order_id 关联 t_pay_order 拿到 account_id
+    -->
+    <select id="countRefundOrders" resultType="java.lang.Integer">
+        SELECT COUNT(*)
+        FROM t_refund_order ro
+        INNER JOIN t_pay_order po ON po.pay_order_id = ro.pay_order_id
+        WHERE po.account_id = #{accountId}
+          AND ro.created_at &gt;= #{startTime}
+          AND ro.created_at &lt; #{endTime}
+          AND ro.state = 2
+    </select>
+
+    <!--
+      拒付笔数：全状态都算（已应诉/胜诉/败诉/超时 都算曾经发生）
+      只有 received -> won 算"挽回"，但通道方仍记录在拒付率里
+    -->
+    <select id="countChargebacks" resultType="java.lang.Integer">
+        SELECT COUNT(*)
+        FROM t_chargeback_record
+        WHERE account_id = #{accountId}
+          AND created_at &gt;= #{startTime}
+          AND created_at &lt; #{endTime}
+    </select>
+
+    <!--
+      投诉笔数 = 拒付 + 主动 dispute（chargeback_type 区分）
+      注意：当前实现暂等于 countChargebacks，待 dispute 单独表后区分
+    -->
+    <select id="countDisputes" resultType="java.lang.Integer">
+        SELECT COUNT(*)
+        FROM t_chargeback_record
+        WHERE account_id = #{accountId}
+          AND created_at &gt;= #{startTime}
+          AND created_at &lt; #{endTime}
+          AND chargeback_type IN ('fraudulent', 'unrecognized', 'duplicate', 'product_not_received')
+    </select>
+
+</mapper>

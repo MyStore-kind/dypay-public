@@ -14,6 +14,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 通道健康度服务
@@ -44,32 +45,54 @@ public class ChannelHealthService extends ServiceImpl<ChannelHealthSnapshotMappe
         Date now = new Date();
         Date startTime = calculateStartTime(now, windowType);
 
-        // TODO 实际项目中需要从 t_pay_order / t_refund_order / t_chargeback_record 聚合
-        // 此处给出聚合 SQL 思路，由 Mapper 自定义 SQL 实现（待补充 xml）：
-        //   SELECT
-        //     COUNT(*) total,
-        //     SUM(CASE WHEN state=2 THEN 1 ELSE 0 END) success,
-        //     SUM(CASE WHEN state=3 THEN 1 ELSE 0 END) fail,
-        //     ...
-        //   FROM t_pay_order WHERE account_id=? AND created_at BETWEEN ? AND ?
-
         ChannelHealthSnapshot snapshot = new ChannelHealthSnapshot()
                 .setAccountId(accountId)
                 .setSnapshotTime(now)
                 .setWindowType(windowType);
 
-        // 占位：实际数据由 Mapper 聚合查询填充
-        snapshot.setTotalCount(0);
-        snapshot.setSuccessCount(0);
-        snapshot.setFailCount(0);
-        snapshot.setChargebackCount(0);
-        snapshot.setDisputeCount(0);
-        snapshot.setRefundCount(0);
-        snapshot.setThreeDsCount(0);
-        snapshot.setTotalAmount(0L);
+        // 1. 聚合订单核心指标（total/success/fail/three_ds/total_amount）
+        Map<String, Object> metrics = baseMapper.aggregatePayOrderMetrics(accountId, startTime, now);
+        snapshot.setTotalCount(toInt(metrics, "total"));
+        snapshot.setSuccessCount(toInt(metrics, "success"));
+        snapshot.setFailCount(toInt(metrics, "fail"));
+        snapshot.setThreeDsCount(toInt(metrics, "three_ds"));
+        snapshot.setTotalAmount(toLong(metrics, "total_amount"));
 
+        // 2. 退款笔数
+        Integer refundCount = baseMapper.countRefundOrders(accountId, startTime, now);
+        snapshot.setRefundCount(refundCount == null ? 0 : refundCount);
+
+        // 3. 拒付笔数
+        Integer chargebackCount = baseMapper.countChargebacks(accountId, startTime, now);
+        snapshot.setChargebackCount(chargebackCount == null ? 0 : chargebackCount);
+
+        // 4. 投诉笔数（含拒付）
+        Integer disputeCount = baseMapper.countDisputes(accountId, startTime, now);
+        snapshot.setDisputeCount(disputeCount == null ? 0 : disputeCount);
+
+        // 5. 计算比率
         calculateRates(snapshot);
         return snapshot;
+    }
+
+    /**
+     * Map 中安全提取 Integer
+     * 为什么：MyBatis 默认 SUM/COUNT 返回 BigDecimal 或 Long，需统一转换
+     */
+    private int toInt(Map<String, Object> m, String key) {
+        if (m == null) return 0;
+        Object v = m.get(key);
+        if (v == null) return 0;
+        if (v instanceof Number) return ((Number) v).intValue();
+        try { return Integer.parseInt(v.toString()); } catch (Exception e) { return 0; }
+    }
+
+    private long toLong(Map<String, Object> m, String key) {
+        if (m == null) return 0L;
+        Object v = m.get(key);
+        if (v == null) return 0L;
+        if (v instanceof Number) return ((Number) v).longValue();
+        try { return Long.parseLong(v.toString()); } catch (Exception e) { return 0L; }
     }
 
     /**

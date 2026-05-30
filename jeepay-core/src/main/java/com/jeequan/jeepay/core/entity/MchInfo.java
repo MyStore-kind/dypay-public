@@ -145,5 +145,43 @@ public class MchInfo extends BaseModel implements Serializable {
     @Schema(title = "updatedAt", description = "更新时间")
     private Date updatedAt;
 
+    // ===== 国际四方扩展字段 =====
+    // 对应 international_payment_patch.sql / risk_control_patch.sql 的 ALTER TABLE 扩展
+
+    /** 所属代理商号 */
+    @Schema(title = "agentNo", description = "所属代理商号")
+    private String agentNo;
+
+    /** 商户结算币种 */
+    @Schema(title = "settlementCurrency", description = "结算币种")
+    private String settlementCurrency;
+
+    /** 支持币种列表（逗号分隔） */
+    @Schema(title = "supportCurrencies", description = "支持币种列表")
+    private String supportCurrencies;
+
+    /** MCC 行业代码 */
+    @Schema(title = "mccCode", description = "MCC行业代码")
+    private String mccCode;
+
+    /** 风险等级 low/mid/high */
+    @Schema(title = "riskTier", description = "风险等级")
+    private String riskTier;
+
+    /** 当前风险评分 */
+    @Schema(title = "currentRiskScore", description = "当前风险评分")
+    private Integer currentRiskScore;
+
+    /** 日交易限额（分，0=不限） */
+    @Schema(title = "dailyLimitAmount", description = "日交易限额")
+    private Long dailyLimitAmount;
+
+    /** 单笔限额（分，0=不限） */
+    @Schema(title = "singleLimitAmount", description = "单笔限额")
+    private Long singleLimitAmount;
+
+    /** 超阈值自动暂停 0-否 1-是 */
+    @Schema(title = "autoSuspendEnabled", description = "超阈值自动暂停")
+    private Byte autoSuspendEnabled;
 
 }

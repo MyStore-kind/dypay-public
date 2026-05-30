@@ -42,7 +42,9 @@ import com.jeequan.jeepay.pay.rqrs.payorder.payway.QrCashierOrderRQ;
 import com.jeequan.jeepay.pay.rqrs.payorder.payway.QrCashierOrderRS;
 import com.jeequan.jeepay.pay.service.ConfigContextQueryService;
 import com.jeequan.jeepay.pay.service.PayOrderProcessService;
+import com.jeequan.jeepay.service.impl.ChannelAccountRouteHook;
 import com.jeequan.jeepay.service.impl.MchPayPassageService;
+import com.jeequan.jeepay.service.impl.OrderRiskHookService;
 import com.jeequan.jeepay.service.impl.PayOrderService;
 import com.jeequan.jeepay.service.impl.SysConfigService;
 import lombok.extern.slf4j.Slf4j;
@@ -69,6 +71,10 @@ public abstract class AbstractPayOrderController extends ApiController {
     @Autowired private PayOrderProcessService payOrderProcessService;
     @Autowired private SysConfigService sysConfigService;
     @Autowired private IMQSender mqSender;
+
+    // 国际四方扩展（订单入库前的钩子，不影响主流程）
+    @Autowired(required = false) private OrderRiskHookService orderRiskHookService;
+    @Autowired(required = false) private ChannelAccountRouteHook channelAccountRouteHook;
 
 
     /** 统一下单 (新建订单模式) **/
@@ -197,6 +203,31 @@ public abstract class AbstractPayOrderController extends ApiController {
                 if(StringUtils.isNotBlank(newPayOrderId)){ // 自定义订单号
                     payOrder.setPayOrderId(newPayOrderId);
                 }
+
+                // ====== 国际四方扩展：订单入库前的钩子（路由 + 风控） ======
+                // 1. 通道账号智能路由（多账号池中按健康度选择）
+                //    注意：钩子缺失时（旧版本）不影响主流程
+                if (channelAccountRouteHook != null) {
+                    try {
+                        channelAccountRouteHook.assignAccount(payOrder);
+                    } catch (Exception e) {
+                        log.warn("通道账号路由失败 payOrderId={}", payOrder.getPayOrderId(), e);
+                    }
+                }
+                // 2. 订单前置风控（黑名单/卡 BIN/IP/邮箱评分，命中拒绝直接抛 BizException）
+                //    注意：rq 暂未在 PayOrder 中收集买家信息，需上游传入 extraInfo
+                //    后续可通过扩展 UnifiedOrderRQ 增加风控字段
+                if (orderRiskHookService != null) {
+                    try {
+                        orderRiskHookService.preCheck(payOrder, null);
+                    } catch (BizException be) {
+                        throw be; // 风控拒绝必须中断下单
+                    } catch (Exception e) {
+                        log.warn("订单风控钩子异常 payOrderId={}", payOrder.getPayOrderId(), e);
+                    }
+                }
+                // ====== 扩展结束 ======
+
                 //订单入库 订单状态： 生成状态  此时没有和任何上游渠道产生交互。
                 payOrderService.save(payOrder);
             }
