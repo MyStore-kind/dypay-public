@@ -40,6 +40,11 @@ public class ChannelAccountRouteHook {
     /**
      * 给订单分配通道账号
      *
+     * 入参收集：
+     * - ifCode / currency / amount / mchNo 来自 PayOrder
+     * - mccCode / riskTier 来自商户档案（MchInfo）
+     * - country 暂未在 PayOrder 收集，预留入参（后续补卡 BIN 解析）
+     *
      * @param payOrder 订单（必须已设置 ifCode、currency、amount、mchNo）
      * @return 选中的账号 ID（失败返回 null，业务方决定如何处理）
      */
@@ -48,18 +53,19 @@ public class ChannelAccountRouteHook {
         String ifCode = payOrder.getIfCode();
         if (ifCode == null) return null;
 
-        // 商户属性
+        // 商户属性（MCC + 风险等级）
         MchInfo mch = mchInfoService.getById(payOrder.getMchNo());
         String mccCode = mch == null ? null : mch.getMccCode();
         String tier = mch == null || mch.getRiskTier() == null ? "mid" : mch.getRiskTier();
 
-        // 币种（国家信息暂未在 PayOrder 收集）
+        // 币种来自订单；国家信息暂未在 PayOrder 收集，预留为 null
         String currency = payOrder.getCurrency();
         String country = null;
 
         try {
             ChannelAccount account = channelRouterService.route(
-                    ifCode, mccCode, country, currency, payOrder.getAmount(), tier);
+                    payOrder.getMchNo(), ifCode, payOrder.getAmount(),
+                    currency, country, mccCode, tier);
             payOrder.setAccountId(account.getAccountId());
             return account.getAccountId();
         } catch (Exception e) {

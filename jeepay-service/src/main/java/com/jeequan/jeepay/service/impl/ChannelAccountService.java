@@ -31,14 +31,19 @@ public class ChannelAccountService extends ServiceImpl<ChannelAccountMapper, Cha
 
     /**
      * 查询通道可用账号列表
-     * 过滤：启用 + 健康度非异常 + 当日额度未超限
+     * 过滤：state=1 启用 + health_status IN (1=健康, 2=警告)
+     *
+     * 为什么排除 0/3：0=异常完全不可用；3=限流（红线触发）必须排除路由
+     * 警告(2) 仍参与路由：让其在排序时排到健康(1) 之后，给运营观察窗口
+     *
      * 不排序，由调用方按策略排序
      */
     public List<ChannelAccount> listAvailable(String ifCode) {
         return list(ChannelAccount.gw()
                 .eq(ChannelAccount::getIfCode, ifCode)
                 .eq(ChannelAccount::getState, ChannelAccount.STATE_ENABLE)
-                .ne(ChannelAccount::getHealthStatus, ChannelAccount.HEALTH_ERROR));
+                .in(ChannelAccount::getHealthStatus,
+                        ChannelAccount.HEALTH_OK, ChannelAccount.HEALTH_WARNING));
     }
 
     /**
