@@ -112,7 +112,12 @@ public class PayOrderService extends ServiceImpl<PayOrderMapper, PayOrder> {
         boolean ok = update(updateRecord, new LambdaUpdateWrapper<PayOrder>()
                 .eq(PayOrder::getPayOrderId, payOrderId).eq(PayOrder::getState, PayOrder.STATE_ING));
 
-        // 入账到 pending（独立 try 避免影响主流程）
+        // 入账到 pending
+        // H2 折中：余额入账失败时，把 settle_state 倒回 0
+        //   这样 MchSettleSchedule 不会扫到这条孤儿订单（避免重复结算）
+        //   但订单本身保持 STATE_SUCCESS（避免重新触发通知商户）
+        //   运营可以在余额管理页用 topup 手动补这笔钱
+        //   告警日志会高亮 [BALANCE_CREDIT_FAILED] 触发监控
         if (ok && oldOrder != null && mchBalanceService != null) {
             try {
                 mchBalanceService.creditPending(
@@ -121,7 +126,16 @@ public class PayOrderService extends ServiceImpl<PayOrderMapper, PayOrder> {
                         oldOrder.getCurrency(),
                         payOrderId);
             } catch (Exception e) {
-                log.error("[PayOrder] 余额入账失败 payOrderId={}", payOrderId, e);
+                log.error("[BALANCE_CREDIT_FAILED] payOrderId={} mchNo={} amount={} 余额入账失败，已把 settle_state 倒回 0",
+                        payOrderId, oldOrder.getMchNo(), oldOrder.getAmount(), e);
+                // 把 settle_state 倒回 0 避免调度器误扫
+                try {
+                    PayOrder rollback = new PayOrder();
+                    rollback.setSettleState((byte) 0);
+                    update(rollback, new LambdaUpdateWrapper<PayOrder>()
+                            .eq(PayOrder::getPayOrderId, payOrderId)
+                            .eq(PayOrder::getSettleState, (byte) 1));
+                } catch (Exception ignored) {}
             }
         }
         return ok;

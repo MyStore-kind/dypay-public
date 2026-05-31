@@ -90,13 +90,17 @@ public class CrossSiteChannelController {
      *           PAYMENT.CAPTURE.REFUNDED / CHECKOUT.ORDER.APPROVED /
      *           CUSTOMER.DISPUTE.CREATED
      *
+     * 返回码（H6 修复）：
+     *   200 验签 OK，业务已处理或安全忽略
+     *   401 验签失败 / 通道账号缺失 — 让 PayPal 知道这次推送被拒绝
+     *
      * PayPal 通过 HTTP Header 传 6 个签名字段，我们透传给 verifyWebhookSignature
      */
     @PostMapping("/webhook/paypal")
-    public String paypalWebhook(@RequestBody String payload,
-                                javax.servlet.http.HttpServletRequest req) {
+    public org.springframework.http.ResponseEntity<String> paypalWebhook(
+            @RequestBody String payload,
+            javax.servlet.http.HttpServletRequest req) {
         java.util.Map<String, String> headers = new java.util.HashMap<>();
-        // PayPal 6 个签名相关头都用大写传，统一收集
         String[] keys = {
                 "PAYPAL-AUTH-ALGO", "PAYPAL-CERT-URL",
                 "PAYPAL-TRANSMISSION-ID", "PAYPAL-TRANSMISSION-SIG",
@@ -106,10 +110,13 @@ public class CrossSiteChannelController {
             String v = req.getHeader(k);
             if (v != null) headers.put(k, v);
         }
-        boolean ok = channelService.handlePaypalWebhook(payload, headers);
-        if (!ok) logger.warn("[CrossSite#PaypalWebhook] handled=false");
-        // 同样永远返回 200 防风暴
-        return "{\"received\":true}";
+        int code = channelService.handlePaypalWebhook(payload, headers);
+        if (code == 0) {
+            logger.warn("[CrossSite#PaypalWebhook] verify_failed");
+            return org.springframework.http.ResponseEntity
+                    .status(401).body("{\"error\":\"signature_invalid\"}");
+        }
+        return org.springframework.http.ResponseEntity.ok("{\"received\":true}");
     }
 
     /** 查询订单当前状态（前端付款完成后轮询） */

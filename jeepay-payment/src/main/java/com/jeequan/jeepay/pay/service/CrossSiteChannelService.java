@@ -316,40 +316,28 @@ public class CrossSiteChannelService {
     /**
      * 处理 PayPal Webhook 事件
      *
-     * PayPal Dashboard 配置：
-     *   Endpoint URL: https://pay.dypay.com/api/cross-site/pay/webhook/paypal
-     *   Events:
-     *     - PAYMENT.CAPTURE.COMPLETED   capture 成功
-     *     - PAYMENT.CAPTURE.DENIED      capture 被拒
-     *     - PAYMENT.CAPTURE.REFUNDED    退款发生
-     *     - CHECKOUT.ORDER.APPROVED     用户已在 PayPal 端授权（可选，前端 onApprove 已处理）
-     *     - CUSTOMER.DISPUTE.CREATED    投诉/拒付（与 ChargebackService 联动）
-     *
-     * 反查记录的依据：
-     *   createOrder 时我们把 pay_token 写到 purchase_unit.custom_id
-     *   webhook event 里 resource.purchase_units[0].custom_id 即 pay_token
-     *   capture 事件里 resource.custom_id 即 pay_token（CAPTURE.* 事件 resource 是 capture 对象本身）
-     *
-     * @param payload 原始报文（必须 raw，验签需要）
-     * @param headers PayPal 透传的 6 个签名相关 header
+     * 返回值约定（H6 改进）：
+     *   1  验签成功且处理完成（包含业务忽略的事件）
+     *   0  验签失败 / 配置缺失 — 调用方应返回 401
+     *  -1  内部异常 — 调用方应返回 500（PayPal 会重试）
      */
     @Transactional(rollbackFor = Exception.class)
-    public boolean handlePaypalWebhook(String payload, java.util.Map<String, String> headers) {
+    public int handlePaypalWebhook(String payload, java.util.Map<String, String> headers) {
         ChannelAccount acc = pickAccount("paypal");
         if (acc == null) {
             logger.error("[CrossSite#PayPal Webhook] 无可用账号");
-            return false;
+            return 0;
         }
         JSONObject cfg;
         try { cfg = JSONObject.parseObject(acc.getConfigParams()); }
-        catch (Exception e) { return false; }
+        catch (Exception e) { return 0; }
 
         // 1. 验签
         boolean verified = com.jeequan.jeepay.pay.channel.paypal.PayPalKit
                 .verifyWebhookSignature(cfg, headers, payload);
         if (!verified) {
             logger.error("[CrossSite#PayPal Webhook] 验签失败");
-            return false;
+            return 0;
         }
 
         // 2. 解析事件
@@ -357,13 +345,13 @@ public class CrossSiteChannelService {
         try { event = JSONObject.parseObject(payload); }
         catch (Exception e) {
             logger.error("[CrossSite#PayPal Webhook] payload 解析失败", e);
-            return false;
+            return 0;
         }
         String eventType = event.getString("event_type");
         JSONObject resource = event.getJSONObject("resource");
         if (resource == null) {
             logger.warn("[CrossSite#PayPal Webhook] resource 缺失 type={}", eventType);
-            return true; // 不识别也回 200
+            return 1; // 验签过了，业务无法识别，回 200
         }
 
         // 3. 反查 pay_token
@@ -382,13 +370,13 @@ public class CrossSiteChannelService {
             // 暂只记日志，后续接 ChargebackService 时补
             logger.info("[CrossSite#PayPal Webhook] 找不到 pay_token type={} resourceId={}",
                     eventType, resource.getString("id"));
-            return true;
+            return 1;
         }
 
         CrossSitePushRecord rec = crossSitePushService.loadByPayToken(payToken);
         if (rec == null) {
             logger.warn("[CrossSite#PayPal Webhook] 找不到记录 payToken={}", payToken);
-            return true;
+            return 1;
         }
 
         // 4. 事件分发
@@ -418,13 +406,18 @@ public class CrossSiteChannelService {
             default:
                 logger.info("[CrossSite#PayPal Webhook] 忽略 type={} payToken={}", eventType, payToken);
         }
-        return true;
+        return 1;
     }
 
     /**
      * 标记已退款（PayPal Webhook 收到 REFUNDED 时）
-     * 设计：state 保留 paid，新增字段标记退款状态留待后续 t_refund_record 扩展
-     * 现在仅入队通知 B 站
+     *
+     * H5 幂等保护：依赖 CrossSiteNotifyRecord 的 UNIQUE(push_record_id, event_type) 约束
+     *   多次推送 REFUNDED 事件时，enqueue() 会先查已存在的相同 event 通知记录
+     *   存在则直接 return，不会重复入队
+     *
+     * 注意：当前实现不修改 push_record.state，仍保持 paid 状态
+     *      未来若需独立的 REFUNDED 状态可加 STATE_REFUNDED + refundedAt 字段
      */
     public void markRefunded(CrossSitePushRecord rec, String reasonEvent) {
         crossSiteNotifyService.enqueue(rec, CrossSiteNotifyRecord.EVENT_REFUNDED);

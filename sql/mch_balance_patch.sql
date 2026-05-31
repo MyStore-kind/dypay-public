@@ -66,6 +66,23 @@ ALTER TABLE `t_pay_order`
   ADD COLUMN `settle_state` TINYINT NOT NULL DEFAULT 0 COMMENT '结算状态：0-待入 pending  1-已入 pending  2-已结算到 available' AFTER `settle_at`,
   ADD KEY `idx_settle_pending` (`settle_state`, `settle_at`);
 
+-- 历史订单数据迁移（C1 修复）
+-- 已成功（state=2）且 success_time 不为空的旧订单：
+--   1. 算出 settle_at = success_time + T+N
+--   2. 把 settle_state 改成 1（等待 MchSettleSchedule 把 pending → available）
+-- 注意：旧订单本身没经过 creditPending 入账，所以这里只是给"未来某个时刻"补结算
+--      如果旧订单的 pending 永远是 0，settle 时会因 pending 不足抛 BizException 而 fail
+--      这是已知行为：旧订单不补入账（避免重复扣款），仅打标避免历史数据失踪
+--      运营如需历史订单入账，请用 /api/mchInfo/balance/{mchNo}/topup 手动充值
+UPDATE `t_pay_order` o
+SET o.`settle_at` = DATE_ADD(COALESCE(o.`success_time`, o.`updated_at`),
+                              INTERVAL COALESCE(
+                                  (SELECT m.`settle_delay_days` FROM `t_mch_info` m WHERE m.`mch_no` = o.`mch_no`),
+                                  1) DAY),
+    o.`settle_state` = 2  -- 直接标记"已结算"，避免重复入账
+WHERE o.`state` = 2
+  AND o.`settle_state` = 0;
+
 -- ============================================
 -- 默认配置：T+N
 -- ============================================

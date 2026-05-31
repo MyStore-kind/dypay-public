@@ -49,17 +49,13 @@ public class MchSettleSchedule {
     /** 每 5 分钟跑一次 */
     @Scheduled(cron = "0 */5 * * * ?")
     public void run() {
-        boolean locked = false;
+        // 用 RedisUtil.setIfAbsent（SET NX EX）原子抢锁，避免 hasKey + set 的竞态
+        boolean locked = RedisUtil.setIfAbsent(LOCK_KEY, "1", LOCK_TTL_SECONDS, TimeUnit.SECONDS);
+        if (!locked) {
+            logger.debug("[Settle] 未抢到锁，跳过本轮");
+            return;
+        }
         try {
-            // 简易分布式锁：先 hasKey，没有就 set
-            // 注意：hasKey + set 非原子，并发场景下可能两个实例都进；
-            //      但 settle 方法本身已经做 settle_state=1 守卫，重复执行不会双入账
-            if (RedisUtil.hasKey(LOCK_KEY)) {
-                logger.debug("[Settle] 锁存在，跳过本轮");
-                return;
-            }
-            RedisUtil.setString(LOCK_KEY, "1", LOCK_TTL_SECONDS, TimeUnit.SECONDS);
-            locked = true;
 
             Date now = new Date();
             LambdaQueryWrapper<PayOrder> w = new LambdaQueryWrapper<PayOrder>()
@@ -101,12 +97,29 @@ public class MchSettleSchedule {
                     fail++;
                     logger.error("[Settle] 订单结算失败 payOrderId={} mchNo={}",
                             o.getPayOrderId(), o.getMchNo(), e);
-                    // 回滚 settle_state，让下一轮重试
+                    // H1 修复：回滚前先检查是否已有 settle 流水
+                    //   - 有流水 = 已扣过钱，不能再回滚（否则下轮重试会重复扣）
+                    //   - 无流水 = 真的失败了，回滚 settle_state 让下轮重试
                     try {
-                        PayOrder rollback = new PayOrder();
-                        rollback.setPayOrderId(o.getPayOrderId());
-                        rollback.setSettleState((byte) 1);
-                        payOrderService.updateById(rollback);
+                        com.jeequan.jeepay.core.entity.MchBalanceRecord existed =
+                                mchBalanceService.getOne(
+                                        com.jeequan.jeepay.core.entity.MchBalanceRecord.gw()
+                                                .eq(com.jeequan.jeepay.core.entity.MchBalanceRecord::getPayOrderId, o.getPayOrderId())
+                                                .eq(com.jeequan.jeepay.core.entity.MchBalanceRecord::getType,
+                                                        com.jeequan.jeepay.core.entity.MchBalanceRecord.TYPE_SETTLE)
+                                                .last("LIMIT 1"),
+                                        false);
+                        if (existed != null) {
+                            logger.warn("[Settle] 流水已存在，不回滚 payOrderId={}", o.getPayOrderId());
+                        } else {
+                            // 加 WHERE settle_state=2 守卫，避免误改其他状态
+                            PayOrder rollback = new PayOrder();
+                            rollback.setSettleState((byte) 1);
+                            payOrderService.update(rollback,
+                                    new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<PayOrder>()
+                                            .eq(PayOrder::getPayOrderId, o.getPayOrderId())
+                                            .eq(PayOrder::getSettleState, (byte) 2));
+                        }
                     } catch (Exception ignored) {}
                 }
             }

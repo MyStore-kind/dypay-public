@@ -43,6 +43,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/mchInfo/balance")
 public class MchBalanceController extends CommonCtrl {
 
+    /**
+     * 充值/调账金额上限：1 亿元（按分计 = 10,000,000,000 分）
+     * 超过此值的操作运营无权直接执行，需走线下流程
+     */
+    private static final long MAX_AMOUNT_LIMIT = 10_000_000_000L;
+
     @Autowired private MchInfoService mchInfoService;
     @Autowired private MchBalanceService mchBalanceService;
 
@@ -69,6 +75,9 @@ public class MchBalanceController extends CommonCtrl {
         JSONObject body = getReqParamJSON();
         Long amount = body.getLong("amount");
         if (amount == null || amount <= 0) return ApiRes.customFail("amount 必填且 > 0");
+        if (amount > MAX_AMOUNT_LIMIT) {
+            return ApiRes.customFail("单笔充值不得超过 " + (MAX_AMOUNT_LIMIT / 100) + " 元，请走线下流程");
+        }
         String currency = body.getString("currency");
         String remark = body.getString("remark");
         String operator = currentOperator();
@@ -83,6 +92,9 @@ public class MchBalanceController extends CommonCtrl {
         JSONObject body = getReqParamJSON();
         Long delta = body.getLong("delta");
         if (delta == null || delta == 0) return ApiRes.customFail("delta 必填且非零");
+        if (Math.abs(delta) > MAX_AMOUNT_LIMIT) {
+            return ApiRes.customFail("单笔调账绝对值不得超过 " + (MAX_AMOUNT_LIMIT / 100) + " 元");
+        }
         String currency = body.getString("currency");
         String remark = body.getString("remark");
         if (StringUtils.isBlank(remark)) return ApiRes.customFail("调账必须填 remark");
@@ -98,9 +110,15 @@ public class MchBalanceController extends CommonCtrl {
         JSONObject body = getReqParamJSON();
         Long amount = body.getLong("amount");
         if (amount == null || amount <= 0) return ApiRes.customFail("amount 必填且 > 0");
+        if (amount > MAX_AMOUNT_LIMIT) {
+            return ApiRes.customFail("单笔冻结不得超过 " + (MAX_AMOUNT_LIMIT / 100) + " 元");
+        }
         String reason = body.getString("reason");
         if (StringUtils.isBlank(reason)) return ApiRes.customFail("冻结必须填 reason");
-        mchBalanceService.freeze(mchNo, amount, reason);
+        // H4 修复：把 operator 也带进流水，方便追溯
+        String operator = currentOperator();
+        String auditReason = String.format("[op=%s] %s", operator, reason);
+        mchBalanceService.freeze(mchNo, amount, auditReason);
         return ApiRes.ok();
     }
 
@@ -111,8 +129,13 @@ public class MchBalanceController extends CommonCtrl {
         JSONObject body = getReqParamJSON();
         Long amount = body.getLong("amount");
         if (amount == null || amount <= 0) return ApiRes.customFail("amount 必填且 > 0");
+        if (amount > MAX_AMOUNT_LIMIT) {
+            return ApiRes.customFail("单笔解冻不得超过 " + (MAX_AMOUNT_LIMIT / 100) + " 元");
+        }
         String reason = body.getString("reason");
-        mchBalanceService.unfreeze(mchNo, amount, reason);
+        String operator = currentOperator();
+        String auditReason = String.format("[op=%s] %s", operator, reason == null ? "" : reason);
+        mchBalanceService.unfreeze(mchNo, amount, auditReason);
         return ApiRes.ok();
     }
 

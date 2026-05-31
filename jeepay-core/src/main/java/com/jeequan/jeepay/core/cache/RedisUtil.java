@@ -118,6 +118,19 @@ public class RedisUtil {
         return getStringRedisTemplate().hasKey(key);
     }
 
+    /**
+     * 原子 SET NX EX —— 分布式锁场景专用
+     * 仅当 key 不存在时才写入，并设置过期时间
+     * 返回 true 代表抢锁成功
+     *
+     * 为什么单独提供：原有 setString + hasKey 是两次调用，并发下不原子
+     * 实现：使用 Spring RedisTemplate opsForValue.setIfAbsent（底层是 SET NX EX）
+     */
+    public static boolean setIfAbsent(String key, String value, long time, TimeUnit timeUnit) {
+        Boolean ok = getStringRedisTemplate().opsForValue().setIfAbsent(key, value, time, timeUnit);
+        return Boolean.TRUE.equals(ok);
+    }
+
     /** 删除缓存 **/
     public static void del(String... key) {
         if (key != null && key.length > 0) {
