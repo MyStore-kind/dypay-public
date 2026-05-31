@@ -18,6 +18,8 @@ package com.jeequan.jeepay.mgr.web;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
+import org.springframework.web.servlet.config.annotation.ViewControllerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 /*
@@ -36,5 +38,23 @@ public class WebmvcConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(apiResInterceptor);
+    }
+
+    /**
+     * 跨站托管收银台静态资源
+     * - /cashier/index.html /cashier/fingerprint.js → classpath:/static/cashier/
+     * - /cashier/{token}     → 转发到 index.html（前端从 URL 取 token）
+     */
+    @Override
+    public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        registry.addResourceHandler("/cashier/**")
+                .addResourceLocations("classpath:/static/cashier/");
+    }
+
+    @Override
+    public void addViewControllers(ViewControllerRegistry registry) {
+        // /cashier/<token> 一律走 index.html（fingerprint.js 是真实文件优先匹配 ResourceHandler）
+        registry.addViewController("/cashier/{token:[A-Za-z0-9_-]{16,64}}")
+                .setViewName("forward:/cashier/index.html");
     }
 }

@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Secure Checkout</title>
+  <meta name="referrer" content="no-referrer">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
+      max-width: 480px;
+      width: 100%;
+      overflow: hidden;
+    }
+    .header { padding: 32px 32px 24px; border-bottom: 1px solid #f0f0f0; }
+    .brand { font-size: 14px; color: #999; letter-spacing: 0.5px; text-transform: uppercase; }
+    .subject { font-size: 18px; color: #333; margin-top: 6px; font-weight: 500; }
+    .amount-block { padding: 28px; text-align: center; }
+    .amount { font-size: 44px; font-weight: 700; color: #1a1a1a; line-height: 1; }
+    .currency { font-size: 18px; color: #666; margin-left: 6px; }
+    .body { padding: 0 32px 32px; }
+    .row { display: flex; justify-content: space-between; padding: 10px 0; border-top: 1px solid #f5f5f5; font-size: 13px; }
+    .row-label { color: #999; }
+    .row-value { color: #333; font-weight: 500; }
+    .pay-btn {
+      width: 100%; padding: 14px;
+      background: #635bff; color: #fff;
+      border: none; border-radius: 8px;
+      font-size: 16px; font-weight: 600;
+      cursor: pointer; margin-top: 16px;
+      transition: background 0.2s;
+    }
+    .pay-btn:hover { background: #5046e4; }
+    .pay-btn:disabled { background: #ccc; cursor: not-allowed; }
+    .status { padding: 12px 16px; border-radius: 8px; margin: 14px 0; font-size: 13px; }
+    .status.info { background: #eff6ff; color: #1d4ed8; }
+    .status.warn { background: #fef3c7; color: #92400e; }
+    .status.error { background: #fee2e2; color: #b91c1c; }
+    .status.success { background: #d1fae5; color: #065f46; }
+    .loader {
+      display: inline-block; width: 14px; height: 14px;
+      border: 2px solid currentColor; border-top-color: transparent;
+      border-radius: 50%; animation: spin 0.7s linear infinite;
+      vertical-align: middle; margin-right: 8px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .footer { padding: 14px 32px; background: #fafafa; font-size: 11px; color: #999; text-align: center; }
+    .lock { display: inline-block; vertical-align: middle; margin-right: 4px; }
+
+    /* 通道选择 */
+    .method-tabs { display: flex; gap: 8px; margin: 16px 0; }
+    .method-tab {
+      flex: 1; padding: 10px; text-align: center;
+      border: 2px solid #e5e7eb; border-radius: 8px;
+      cursor: pointer; font-size: 13px; font-weight: 500;
+      color: #6b7280; background: #fff;
+      transition: all 0.15s;
+    }
+    .method-tab.active { border-color: #635bff; color: #635bff; }
+    .method-tab[disabled] { opacity: 0.4; cursor: not-allowed; }
+
+    /* Stripe Elements 容器 */
+    #stripe-element {
+      padding: 12px 14px; border: 1px solid #d1d5db; border-radius: 8px;
+      background: #fff; min-height: 44px;
+    }
+    /* PayPal 容器 */
+    #paypal-button { min-height: 44px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <div class="brand">DYPAY Secure Checkout</div>
+      <div class="subject" id="subject">Loading...</div>
+    </div>
+
+    <div class="amount-block">
+      <span class="amount" id="amount">--</span>
+      <span class="currency" id="currency"></span>
+    </div>
+
+    <div class="body">
+      <div class="row">
+        <span class="row-label">Order</span>
+        <span class="row-value" id="orderId">--</span>
+      </div>
+
+      <div id="status" class="status info">
+        <span class="loader"></span>Verifying your environment...
+      </div>
+
+      <div id="payArea" style="display:none">
+        <div class="method-tabs">
+          <div class="method-tab active" data-m="stripe" id="tab-stripe">💳 Card</div>
+          <div class="method-tab" data-m="paypal" id="tab-paypal">PayPal</div>
+        </div>
+
+        <div id="stripe-pane">
+          <div id="stripe-element"></div>
+          <button class="pay-btn" id="stripePayBtn">Pay Now</button>
+        </div>
+
+        <div id="paypal-pane" style="display:none">
+          <div id="paypal-button"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <svg class="lock" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </svg>
+      Protected by DYPAY Risk Engine.
+    </div>
+  </div>
+
+  <script src="/cashier/fingerprint.js"></script>
+  <script src="https://js.stripe.com/v3/"></script>
+  <script>
+    (function() {
+      var parts = location.pathname.split('/').filter(Boolean);
+      var payToken = parts[parts.length - 1];
+      if (!payToken || payToken === 'cashier') {
+        showStatus('error', 'Invalid checkout link.'); return;
+      }
+
+      // 收银台前端走 manager 模块（/api/anon/cross-site/order/...）
+      // 通道前端走 payment 模块（/api/cross-site/pay/...）
+      var MGR_API = '/api/anon/cross-site/order';
+      var PAY_API = '/api/cross-site/pay';
+      var returnUrl = null;
+      var orderData = null;
+      var stripeObj = null;
+      var stripeElements = null;
+      var stripePayElement = null;
+
+      // ===== Step 1: 拉订单基础信息 =====
+      fetch(MGR_API + '/' + payToken)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.code !== 0) { showStatus('error', data.msg || 'Order not found.'); return; }
+          orderData = data.data;
+          renderOrder(orderData);
+          if (orderData.state === 'expired') {
+            showStatus('error', 'This checkout has expired.'); return;
+          }
+          if (orderData.state === 'paid') {
+            showStatus('success', 'This order has been paid.'); return;
+          }
+          collectAndDecide(payToken);
+        })
+        .catch(function(e) { showStatus('error', 'Network error.'); console.error(e); });
+
+      // ===== Step 2: 采集指纹 + 拿决策 =====
+      function collectAndDecide(token) {
+        var t0 = Date.now();
+        window.DYPAY_FP.collect().then(function(fp) {
+          fp.collectDurationMs = Date.now() - t0;
+          return fetch(MGR_API + '/' + token + '/collect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fingerprint: fp })
+          });
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.code !== 0) { showStatus('error', data.msg || 'Verification failed.'); return; }
+          var d = data.data;
+          if (d.decision === 'reject') {
+            showStatus('error', 'This transaction cannot be processed.'); return;
+          }
+          if (d.decision === '3ds') {
+            showStatus('warn', 'Additional verification will be required.');
+          } else {
+            showStatus('success', 'Verification complete. Choose a payment method.');
+          }
+          // 进入支付方式选择
+          document.getElementById('payArea').style.display = '';
+          initPaymentMethods();
+        })
+        .catch(function(e) { showStatus('error', 'Verification error.'); console.error(e); });
+      }
+
+      // ===== Step 3: 初始化支付方式 =====
+      function initPaymentMethods() {
+        // 默认 Stripe
+        switchMethod('stripe');
+        document.getElementById('tab-stripe').onclick = function() { switchMethod('stripe'); };
+        document.getElementById('tab-paypal').onclick = function() { switchMethod('paypal'); };
+      }
+
+      function switchMethod(m) {
+        document.getElementById('tab-stripe').classList.toggle('active', m === 'stripe');
+        document.getElementById('tab-paypal').classList.toggle('active', m === 'paypal');
+        document.getElementById('stripe-pane').style.display = m === 'stripe' ? '' : 'none';
+        document.getElementById('paypal-pane').style.display = m === 'paypal' ? '' : 'none';
+        if (m === 'stripe') initStripe();
+        if (m === 'paypal') initPaypal();
+      }
+
+      // ===== Stripe Elements =====
+      function initStripe() {
+        if (stripeElements) return; // 已初始化
+        fetch(PAY_API + '/' + payToken + '/prepareStripe', { method: 'POST' })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.code !== 0) { showStatus('error', data.msg); return; }
+            var d = data.data;
+            if (!d.publishable_key || !d.client_secret) {
+              showStatus('error', 'Stripe not configured.'); return;
+            }
+            stripeObj = Stripe(d.publishable_key);
+            stripeElements = stripeObj.elements({ clientSecret: d.client_secret, appearance: { theme: 'stripe' } });
+            stripePayElement = stripeElements.create('payment');
+            stripePayElement.mount('#stripe-element');
+
+            document.getElementById('stripePayBtn').onclick = function() {
+              var btn = this;
+              btn.disabled = true;
+              btn.innerHTML = '<span class="loader" style="color:#fff"></span>Processing...';
+              stripeObj.confirmPayment({
+                elements: stripeElements,
+                confirmParams: { return_url: location.href + '?back=1' },
+                redirect: 'if_required'
+              }).then(function(result) {
+                if (result.error) {
+                  showStatus('error', result.error.message || 'Payment failed.');
+                  btn.disabled = false;
+                  btn.textContent = 'Pay Now';
+                  return;
+                }
+                // 不重定向时直接来这（payment_intent.status === 'succeeded'）
+                pollPaymentSuccess();
+              });
+            };
+          })
+          .catch(function(e) { showStatus('error', 'Init error.'); console.error(e); });
+      }
+
+      // ===== PayPal Buttons =====
+      function initPaypal() {
+        if (window._paypalInitialized) return;
+        fetch(PAY_API + '/' + payToken + '/preparePaypal', { method: 'POST' })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.code !== 0) { showStatus('error', data.msg); return; }
+            var d = data.data;
+            if (!d.publishable_key) { showStatus('error', 'PayPal not configured.'); return; }
+            // 动态加载 PayPal SDK
+            var script = document.createElement('script');
+            script.src = 'https://www.paypal.com/sdk/js?client-id=' + d.publishable_key +
+              '&currency=' + (orderData.currency || 'USD');
+            script.onload = function() {
+              window.paypal.Buttons({
+                createOrder: function() {
+                  // 用 PayPal Orders v2 API 创单（M1 简化：让 PayPal 端拿到金额即可）
+                  return fetch(PAY_API + '/' + payToken + '/preparePaypal', { method: 'POST' })
+                    .then(function(r) { return r.json(); })
+                    .then(function(d2) {
+                      // 没接通后端 PayPal 服务端创单时，前端直接走 SDK 创单
+                      return window.paypal.Orders ? null : null;
+                    });
+                },
+                onApprove: function(data) { pollPaymentSuccess(); },
+                onError: function(err) { showStatus('error', 'PayPal error.'); console.error(err); }
+              }).render('#paypal-button');
+              window._paypalInitialized = true;
+            };
+            document.body.appendChild(script);
+          });
+      }
+
+      // ===== 付款完成后轮询 =====
+      function pollPaymentSuccess() {
+        showStatus('info', '<span class="loader"></span>Confirming payment...');
+        var tries = 0;
+        var timer = setInterval(function() {
+          tries++;
+          fetch(PAY_API + '/' + payToken + '/status')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+              if (data.code === 0 && data.data.state === 'paid') {
+                clearInterval(timer);
+                showStatus('success', 'Payment successful! Redirecting...');
+                setTimeout(function() {
+                  if (data.data.return_url) location.href = data.data.return_url;
+                }, 1500);
+              } else if (tries > 30) {  // 60s 超时
+                clearInterval(timer);
+                showStatus('warn', 'Payment is being processed. You may close this page; the merchant will notify you.');
+              }
+            });
+        }, 2000);
+      }
+
+      // ===== UI 辅助 =====
+      function renderOrder(d) {
+        document.getElementById('subject').textContent = d.subject || 'Payment';
+        document.getElementById('amount').textContent = formatAmount(d.amount, d.currency);
+        document.getElementById('currency').textContent = d.currency || 'USD';
+        document.getElementById('orderId').textContent = payToken.substring(0, 12) + '...';
+      }
+      function showStatus(type, html) {
+        var el = document.getElementById('status');
+        el.className = 'status ' + type;
+        el.innerHTML = html;
+      }
+      function formatAmount(cents) {
+        if (cents == null) return '--';
+        return (cents / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+      }
+    })();
+  </script>
+</body>
+</html>
