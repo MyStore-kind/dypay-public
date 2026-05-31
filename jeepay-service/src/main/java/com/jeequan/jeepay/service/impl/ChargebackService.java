@@ -43,6 +43,14 @@ public class ChargebackService extends ServiceImpl<ChargebackRecordMapper, Charg
     private OrderRiskRecordService orderRiskRecordService;
 
     /**
+     * 拒付惩罚扣款引擎（P0 地基）
+     * 注意：本字段以 @Autowired(required=false) 注入是为了让旧测试 / 旧上下文
+     * 在未引入扣款引擎时仍能加载本服务。生产环境一定要有这个 Bean。
+     */
+    @Autowired(required = false)
+    private ChargebackPenaltyService chargebackPenaltyService;
+
+    /**
      * 接收拒付通知（由通道 Webhook 调用）
      * 自动从订单与风控记录中收集证据快照
      *
@@ -72,6 +80,17 @@ public class ChargebackService extends ServiceImpl<ChargebackRecordMapper, Charg
         chargeback.setState(ChargebackRecord.STATE_RECEIVED);
 
         save(chargeback);
+
+        // 4. 触发拒付惩罚扣款（P0 地基）
+        // 设计：扣款引擎用 REQUIRES_NEW 独立事务，失败仅记日志，绝不影响本拒付落库
+        if (chargebackPenaltyService != null) {
+            try {
+                chargebackPenaltyService.applyPenalty(chargeback);
+            } catch (Exception e) {
+                // 双重兜底：引擎内部已经 catch；这里再兜一层保证主流程不抛
+                logger.error("[Chargeback] 拒付惩罚扣款失败 chargebackId={}", chargeback.getId(), e);
+            }
+        }
         return chargeback;
     }
 

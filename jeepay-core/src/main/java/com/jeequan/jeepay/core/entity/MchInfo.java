@@ -192,4 +192,19 @@ public class MchInfo extends BaseModel implements Serializable {
     @Schema(title = "autoSuspendThreshold", description = "拒付率自动暂停阈值(%)")
     private java.math.BigDecimal autoSuspendThreshold;
 
+    // ===== 商户余额（拒付惩罚扣款来源，chargeback_penalty_patch.sql 增加） =====
+    // 设计：单位为"分"。available 第一优先扣，pending 第二优先扣，frozen 仅审计
+
+    /** 可用余额（分） */
+    @Schema(title = "balanceAvailable", description = "可用余额（分），拒付扣款第一优先级")
+    private Long balanceAvailable;
+
+    /** 未下发余额（分） */
+    @Schema(title = "balancePending", description = "未下发余额（分），拒付扣款第二优先级")
+    private Long balancePending;
+
+    /** 已冻结余额（分） */
+    @Schema(title = "balanceFrozen", description = "已冻结余额（分），仅审计")
+    private Long balanceFrozen;
+
 }

@@ -98,4 +98,19 @@ public class ChannelAccount extends BaseModel implements Serializable {
     private Byte healthStatus;
     private Byte state;
     private String remark;
+
+    // ===== 上游分控保护扩展（chargeback_penalty_patch.sql 增加） =====
+    // 设计：把"三方公司分控规则"作为渠道画像存起来，路由层 / 评分作业可消费
+
+    /** 上游三方分控规则快照（JSON 字符串，人工或 AI 录入） */
+    private String upstreamRiskRules;
+
+    /** 是否被上游关停 0-否 1-是 */
+    private Byte closedByUpstream;
+
+    /** 收到上游关停回执时间 */
+    private Date circuitCallbackReceivedAt;
+
+    /** 上游关停回执原始报文（排查用） */
+    private String circuitCallbackPayload;
 }
