@@ -58,8 +58,8 @@ spring:
 #  activemq:
 #    broker-url: failover:(tcp://127.0.0.1:61616?wireFormat.maxInactivityDuration=0)  #连接地址
 #    in-memory: false # Jeepay项目不可使用内存模式， 需要连接多个消费者。
-#    user: system # activeMQ默认无需账密认证。 打开认证：activemq.xml添加simpleAuthenticationPlugin标签，账密在credentials.properties文件。
-#    password: manager
+#    user: ${ACTIVEMQ_USER:}  # 安全加固 L2: 用户名/密码请通过环境变量注入，禁止保留明文示例
+#    password: ${ACTIVEMQ_PASSWORD:}
 #    pool:
 #      enabled: true
 #      max-connections: 10
@@ -68,8 +68,8 @@ spring:
 #  #rabbitmq配置  ( 注意： rabbitmq配置项需在spring的下级 )
 #  rabbitmq:
 #    addresses: 127.0.0.1:5672
-#    username: guest
-#    password: guest
+#    username: ${RABBITMQ_USER:}  # 安全加固 L2: 用户名/密码请通过环境变量注入，禁止保留明文示例
+#    password: ${RABBITMQ_PASSWORD:}
 #    dynamic: true
 #    virtual-host: /
 

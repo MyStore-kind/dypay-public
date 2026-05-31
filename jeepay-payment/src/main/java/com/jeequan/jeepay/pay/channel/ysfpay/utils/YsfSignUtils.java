@@ -275,7 +275,7 @@ public class YsfSignUtils {
                 try {
                     fis.close();
                 } catch (IOException e) {
-                    e.printStackTrace();
+                    logger.error("[YsfSignUtils] 关闭流异常", e); // 安全加固 M5
                 }
             }
         }

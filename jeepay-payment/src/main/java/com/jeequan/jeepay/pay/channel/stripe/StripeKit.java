@@ -122,8 +122,9 @@ public class StripeKit {
             logger.info("[Stripe] 创建 PaymentIntent payOrderId={}, threeDSMode={}", payOrderId, threeDSMode);
             return PaymentIntent.create(params);
         } catch (StripeException e) {
+            // 安全加固 S7: 异常信息仅记录到日志，对外返回通用 message，避免泄露 Stripe 内部错误码与堆栈
             logger.error("[Stripe] 创建 PaymentIntent 失败, payOrderId={}", payOrderId, e);
-            throw new BizException("Stripe 下单失败：" + e.getMessage());
+            throw new BizException("操作失败，请联系管理员");
         }
     }
 
@@ -143,8 +144,9 @@ public class StripeKit {
         try {
             return PaymentIntent.retrieve(intentId);
         } catch (StripeException e) {
+            // 安全加固 S7: 异常信息仅记录到日志，对外返回通用 message
             logger.error("[Stripe] 查询 PaymentIntent 失败, intentId={}", intentId, e);
-            throw new BizException("Stripe 查询订单失败：" + e.getMessage());
+            throw new BizException("操作失败，请联系管理员");
         }
     }
 
@@ -170,8 +172,9 @@ public class StripeKit {
                     .build();
             return Refund.create(params);
         } catch (StripeException e) {
+            // 安全加固 S7: 异常信息仅记录到日志，对外返回通用 message
             logger.error("[Stripe] 创建退款失败, intentId={}, refundOrderId={}", intentId, refundOrderId, e);
-            throw new BizException("Stripe 退款失败：" + e.getMessage());
+            throw new BizException("操作失败，请联系管理员");
         }
     }
 

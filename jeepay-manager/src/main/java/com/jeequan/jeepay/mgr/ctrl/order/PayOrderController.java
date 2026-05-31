@@ -42,6 +42,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Parameters;
 import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -61,6 +62,7 @@ import java.util.Map;
 @Tag(name = "订单管理（支付类）")
 @RestController
 @RequestMapping("/api/payOrder")
+@Slf4j
 public class PayOrderController extends CommonCtrl {
 
     @Autowired private PayOrderService payOrderService;
@@ -194,7 +196,9 @@ public class PayOrderController extends CommonCtrl {
             }
             return ApiRes.ok(response.get());
         } catch (JeepayException e) {
-            throw new BizException(e.getMessage());
+            // 安全加固 S7: 异常 message 不再透传，避免泄露 SDK 内部错误细节
+            log.error("退款下单失败", e);
+            throw new BizException("操作失败，请联系管理员");
         }
     }
 

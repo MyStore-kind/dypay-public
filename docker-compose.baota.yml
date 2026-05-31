@@ -32,7 +32,8 @@ services:
     container_name: jeepay-configs
     entrypoint: []
     environment:
-      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:-jeepaydb123456}"
+      # 安全加固 S2: 强制启动前注入 MYSQL_ROOT_PASSWORD，未设置则容器启动失败
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set}"
     volumes:
       - ${APP_PATH}/jeepayhomes/:/jeepayhomes
     command:
@@ -104,7 +105,8 @@ services:
     restart: always
     environment:
       LANG: C.UTF-8
-      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:-jeepaydb123456}"
+      # 安全加固 S2: 强制启动前注入 MYSQL_ROOT_PASSWORD，未设置则容器启动失败
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set}"
       MYSQL_DATABASE: "jeepaydb"
     depends_on:
       jeepay-configs:

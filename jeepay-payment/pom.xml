@@ -105,6 +105,7 @@
 
         <!-- PayPal 官方 Server SDK https://github.com/paypal/PayPal-Server-SDKs -->
         <!-- 为什么：国际四方改造接入 PayPal 通道。官方 SDK 提供 OrdersController/PaymentsController 与签名校验工具 -->
+        <!-- 安全加固 L4: 锁定版本 1.1.0；升级前请验证 webhook 验签 API 是否变化 -->
         <dependency>
             <groupId>com.paypal.sdk</groupId>
             <artifactId>paypal-server-sdk</artifactId>
@@ -177,7 +178,12 @@
         <!-- resources资源配置项 -->
         <resources>
             <!-- 通用资源文件 -->
-            <resource><directory>src/main/resources</directory><includes><include>**/*.*</include></includes></resource>
+            <!-- 安全加固 L3: 排除前端 source map，避免线上暴露源码 -->
+            <resource>
+                <directory>src/main/resources</directory>
+                <includes><include>**/*.*</include></includes>
+                <excludes><exclude>**/*.map</exclude></excludes>
+            </resource>
 
             <!-- 放置通用配置yml文件， 开发时仅配置一套参数即可。   实际生产环境下应在每个项目下 与jar同级目录下新建application.yml覆写对应参数。  -->
             <resource>

@@ -90,7 +90,7 @@ public class AlipayChannelUserService implements IChannelUserService {
         try {
             return configContextQueryService.getAlipayClientWrapper(mchAppConfigContext).execute(request).getUserId();
         } catch (ChannelException e) {
-            e.printStackTrace();
+            log.error("[AlipayChannelUser] 通道异常", e); // 安全加固 M5
             return null;
         }
     }

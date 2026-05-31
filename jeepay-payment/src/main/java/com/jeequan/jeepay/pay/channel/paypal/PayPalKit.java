@@ -138,11 +138,13 @@ public class PayPalKit {
             ApiResponse<Order> resp = orders.ordersCreate(input);
             return resp.getResult();
         } catch (ApiException e) {
+            // 安全加固 S7: 异常信息仅记录到日志，对外返回通用 message
             logger.error("[PayPal] 创建订单 API 异常 payOrderId={}", payOrderId, e);
-            throw new BizException("PayPal 下单失败：" + e.getMessage());
+            throw new BizException("操作失败，请联系管理员");
         } catch (Exception e) {
+            // 安全加固 S7: 异常信息仅记录到日志，对外返回通用 message
             logger.error("[PayPal] 创建订单失败 payOrderId={}", payOrderId, e);
-            throw new BizException("PayPal 下单失败：" + e.getMessage());
+            throw new BizException("操作失败，请联系管理员");
         }
     }
 

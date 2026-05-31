@@ -24,8 +24,12 @@ import com.jeequan.jeepay.core.model.ApiRes;
 import com.jeequan.jeepay.core.utils.FileKit;
 import com.jeequan.jeepay.components.oss.model.OssFileConfig;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.util.Arrays;
+import java.util.List;
 
 /*
 * 统一文件上传接口（ossFile）
@@ -40,7 +44,12 @@ public class OssFileController extends AbstractCtrl {
 
     @Autowired private IOssService ossService;
 
+    // 安全加固 M3: bizType 白名单，防止上传到任意目录
+    private static final List<String> ALLOWED_BIZ_TYPES = Arrays.asList("AVATAR", "CERT", "LOGO", "MCH_INFO");
+
     /** 上传文件 （单文件上传） */
+    // 安全加固 M3: 上传接口强制鉴权，避免匿名上传滥用
+    @PreAuthorize("isAuthenticated()")
     @PostMapping("/{bizType}")
     public ApiRes singleFileUpload(@RequestParam("file") MultipartFile file, @PathVariable("bizType") String bizType) {
 
@@ -48,6 +57,11 @@ public class OssFileController extends AbstractCtrl {
             return ApiRes.fail(ApiCodeEnum.SYSTEM_ERROR, "选择文件不存在");
         }
         try {
+
+            // 安全加固 M3: bizType 白名单校验，拒绝未知类型
+            if (!ALLOWED_BIZ_TYPES.contains(bizType)) {
+                throw new BizException("非法 bizType");
+            }
 
             OssFileConfig ossFileConfig = OssFileConfig.getOssFileConfigByBizType(bizType);
 

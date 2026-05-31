@@ -101,10 +101,10 @@ public class JeepayKit {
             byte[] digestData = md.digest(data);
             return toHex(digestData);
         } catch (NoSuchAlgorithmException e) {
-            e.printStackTrace();
+            log.error("[MD5] NoSuchAlgorithm 异常", e); // 安全加固 M5
             return null;
         } catch (UnsupportedEncodingException e) {
-            e.printStackTrace();
+            log.error("[MD5] UnsupportedEncoding 异常", e); // 安全加固 M5
             return null;
         }
     }

@@ -64,10 +64,10 @@ public class XxpayKit {
 			byte[] digestData = md.digest(data);
 			return toHex(digestData);
 		} catch (NoSuchAlgorithmException e) {
-			e.printStackTrace();
+			log.error("[XxpayKit] NoSuchAlgorithm 异常", e); // 安全加固 M5
 			return null;
 		} catch (UnsupportedEncodingException e) {
-			e.printStackTrace();
+			log.error("[XxpayKit] UnsupportedEncoding 异常", e); // 安全加固 M5
 			return null;
 		}
 	}

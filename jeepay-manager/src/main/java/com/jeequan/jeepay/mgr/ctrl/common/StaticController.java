@@ -48,8 +48,27 @@ public class StaticController extends CommonCtrl {
 
         try {
 
-            //查找图片文件
-            File imgFile = new File(ossYmlConfig.getOss().getFilePublicPath() + File.separator + request.getRequestURI().substring(24));
+            // 安全加固 M8: 路径穿越防护 - 校验请求 URI 不含 ".." 等危险字符，并校验 bizType 白名单
+            String uri = request.getRequestURI();
+            String relativePath = uri.substring(24); // 去掉 /api/anon/localOssFiles/ 前缀
+            if (relativePath.contains("..") || relativePath.contains("\\")) {
+                return new ResponseEntity<>(HttpStatus.BAD_REQUEST);
+            }
+            // 拆分 {bizType}/{fileName}，bizType 必须在白名单
+            int slashIdx = relativePath.indexOf('/');
+            if (slashIdx <= 0) {
+                return new ResponseEntity<>(HttpStatus.BAD_REQUEST);
+            }
+            String bizType = relativePath.substring(0, slashIdx);
+            if (!"AVATAR".equals(bizType) && !"CERT".equals(bizType) && !"LOGO".equals(bizType) && !"MCH_INFO".equals(bizType)) {
+                return new ResponseEntity<>(HttpStatus.BAD_REQUEST);
+            }
+            // 二次防御：解析后的真实路径必须仍在 file-public-path 之下
+            File baseDir = new File(ossYmlConfig.getOss().getFilePublicPath()).getCanonicalFile();
+            File imgFile = new File(baseDir, relativePath).getCanonicalFile();
+            if (!imgFile.getPath().startsWith(baseDir.getPath())) {
+                return new ResponseEntity<>(HttpStatus.BAD_REQUEST);
+            }
             if(!imgFile.isFile() || !imgFile.exists()) {
                 return new ResponseEntity<>(HttpStatus.NOT_FOUND);
             }
@@ -62,6 +81,10 @@ public class StaticController extends CommonCtrl {
 
         } catch (FileNotFoundException e) {
             logger.error("static file error", e);
+            return new ResponseEntity<>(HttpStatus.INTERNAL_SERVER_ERROR);
+        } catch (java.io.IOException e) {
+            // 安全加固 M8: getCanonicalFile 可能抛 IOException
+            logger.error("static file canonical error", e);
             return new ResponseEntity<>(HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }

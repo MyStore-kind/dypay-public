@@ -10,19 +10,37 @@ spring:
 
 #系统业务参数
 isys:
-    jwt-secret: t7w3P8X6472qWc3u #生成jwt的秘钥。 要求每个系统有单独的秘钥管理机制。
+    # 安全加固 S1: 改用环境变量注入，硬编码默认值仅供本地启动占位，生产必须覆盖
+    jwt-secret: ${JEEPAY_JWT_SECRET:CHANGE_ME_IN_PROD_OR_FAIL} #生成jwt的秘钥。 要求每个系统有单独的秘钥管理机制。
+
+# 安全加固 S3/S4: CORS 白名单配置；逗号分隔；生产必须显式指定
+jeepay:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost,http://localhost:8083,http://localhost:8082}
 
 # knife4j APIDOC文档
+# 安全加固 S9: 生产环境通过 SPRINGDOC_ENABLED=false / KNIFE4J_ENABLED=false 关闭文档暴露
 springdoc:
+  api-docs:
+    enabled: ${SPRINGDOC_ENABLED:false}
+    path: /v3/api-docs
   swagger-ui:
+    enabled: ${SPRINGDOC_ENABLED:false}
     path: /swagger-ui.html
     tags-sorter: alpha
     operations-sorter: alpha
-  api-docs:
-    path: /v3/api-docs
   group-configs:
     - group: 'default'
       paths-to-match: '/**'
       packages-to-scan: com.jeequan.jeepay.mgr.ctrl
 knife4j:
-  enable: true
+  enable: ${KNIFE4J_ENABLED:false}
+
+# 安全加固 S8: actuator 端点最小化暴露；prometheus/metrics 仅在生产以独立 management 端口暴露
+management:
+  server:
+    port: ${MGMT_PORT:0}
+  endpoints:
+    web:
+      exposure:
+        include: health,info

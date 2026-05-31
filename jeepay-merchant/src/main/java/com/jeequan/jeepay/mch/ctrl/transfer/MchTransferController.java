@@ -40,6 +40,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Parameters;
 import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -57,6 +58,7 @@ import java.util.List;
 @Tag(name = "商户转账")
 @RestController
 @RequestMapping("/api/mchTransfers")
+@Slf4j
 public class MchTransferController extends CommonCtrl {
 
     @Autowired private MchAppService mchAppService;
@@ -177,7 +179,9 @@ public class MchTransferController extends CommonCtrl {
             }
             return ApiRes.ok(response.get());
         } catch (JeepayException e) {
-            throw new BizException(e.getMessage());
+            // 安全加固 S7: 异常 message 不再透传，避免泄露内部细节
+            log.error("商户转账下单失败", e);
+            throw new BizException("操作失败，请联系管理员");
         }
     }
 

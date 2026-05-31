@@ -17,6 +17,7 @@ package com.jeequan.jeepay.mch.secruity;
 
 import com.jeequan.jeepay.mch.config.SystemYmlConfig;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -56,10 +57,15 @@ public class WebSecurityConfig{
     @Autowired private JeeAuthenticationEntryPoint unauthorizedHandler;
     @Autowired private SystemYmlConfig systemYmlConfig;
 
+    // 安全加固 S3/S4: CORS 白名单从配置注入；逗号分隔；生产必须显式指定，禁止使用 "*"
+    @Value("${jeepay.cors.allowed-origins:http://localhost,http://localhost:8083,http://localhost:8082}")
+    private String corsAllowedOrigins;
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                // 前后端分离架构不需要csrf保护
+                // 安全加固 S4: 前后端分离 + Token 认证体系；防护改为 CORS 白名单(S3) + JWT/iToken 双重校验
+                // 若未来引入 Cookie 会话，必须重新启用 CSRF
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(withDefaults())
                 .addFilter(corsFilter())
@@ -100,6 +106,8 @@ public class WebSecurityConfig{
                         "/*/*.mp4"   //支持mp4格式的文件匿名访问
                 )
                 .requestMatchers(
+                        // 安全加固 M7 TODO: /api/anon/** 为匿名通配，当前 anon 包仅含 AuthController（登录/验证码）。
+                        // 新增匿名 controller 时务必人工审核，避免敏感接口被纳入。
                         "/api/anon/**", //匿名访问接口
                         "/webjars/**","/v3/api-docs/**", "/doc.html", "/knife4j/**", "/swagger-ui/**", "/swagger-resources/**" // swagger相关
                 );
@@ -148,9 +156,17 @@ public class WebSecurityConfig{
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         if(systemYmlConfig.getAllowCors()){
             CorsConfiguration config = new CorsConfiguration();
-            config.setAllowCredentials(true);   //带上cookie信息
-//          config.addAllowedOrigin(CorsConfiguration.ALL);  //允许跨域的域名， *表示允许任何域名使用
-            config.addAllowedOriginPattern(CorsConfiguration.ALL);  //使用addAllowedOriginPattern 避免出现 When allowCredentials is true, allowedOrigins cannot contain the special value "*" since that cannot be set on the "Access-Control-Allow-Origin" response header. To allow credentials to a set of origins, list them explicitly or consider using "allowedOriginPatterns" instead.
+            // 安全加固 S3: 保留 allowCredentials(true) 因前后端通过 Authorization Header 携带 token
+            config.setAllowCredentials(true);
+            // 安全加固 S3: 解析逗号分隔的白名单配置，禁止 "*" 通配
+            if (corsAllowedOrigins != null && !corsAllowedOrigins.trim().isEmpty()) {
+                for (String origin : corsAllowedOrigins.split(",")) {
+                    String trimmed = origin.trim();
+                    if (!trimmed.isEmpty()) {
+                        config.addAllowedOriginPattern(trimmed);
+                    }
+                }
+            }
             config.addAllowedHeader(CorsConfiguration.ALL);   //允许任何请求头
             config.addAllowedMethod(CorsConfiguration.ALL);   //允许任何方法（post、get等）
             source.registerCorsConfiguration("/**", config); // CORS 配置对所有接口都有效

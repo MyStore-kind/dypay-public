@@ -691,9 +691,10 @@ insert into t_sys_role values ('ROLE_OP', '普通操作员', 'MGR', '0', '2021-0
 -- 角色权限关联， [超管]用户 拥有所有权限
 -- insert into t_sys_role_ent_rela select '801', ent_id from t_sys_entitlement;
 
--- 超管用户： jeepay / jeepay123
-insert into t_sys_user values (801, 'jeepay', '超管', '13000000001', '1', 'https://jeequan.oss-cn-beijing.aliyuncs.com/jeepay/img/defava_m.png', 'D0001', 1, 1, 'MGR', '0', '2020-06-13', '2020-06-13');
-insert into t_sys_user_auth values (801, '801', '1', 'jeepay', '$2a$10$WKuPJKE1XhX15ibqDM745eOCaZZVUiRitUjEyX6zVNd9k.cQXfzGa', 'testkey', 'MGR');
+-- 安全加固 S6: 默认账号 admin / Admin@DYPAY2026!，首次登录后必须改密
+-- 禁止保留 jeepay/jeepay123 等社区默认弱口令；BCrypt 哈希对应明文 Admin@DYPAY2026!
+insert into t_sys_user values (801, 'admin', '超管', '13000000001', '1', 'https://jeequan.oss-cn-beijing.aliyuncs.com/jeepay/img/defava_m.png', 'D0001', 1, 1, 'MGR', '0', '2020-06-13', '2020-06-13');
+insert into t_sys_user_auth values (801, '801', '1', 'admin', '$2a$10$JlS3yOhqzJ.0VWP3a8LkVOCnSdh6vH/Et5LcL9pXjpJlqhvJxAvJW', 'testkey', 'MGR');
 
 -- insert into t_sys_user_role_rela values (801, 801);
 

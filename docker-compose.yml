@@ -37,7 +37,8 @@ services:
     image: ${MYSQL_IMAGE:-swr.cn-south-1.myhuaweicloud.com/jeepay/mysql:8}
     environment:
       LANG: C.UTF-8
-      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:-rootroot}"
+      # 安全加固 S2: 强制启动前注入 MYSQL_ROOT_PASSWORD，未设置则容器启动失败
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set}"
       MYSQL_DATABASE: "jeepaydb"
       MYSQL_USER: "jeepay"
       MYSQL_PASSWORD: "${MYSQL_USER_PASSWORD:-jeepay}"
@@ -121,11 +122,16 @@ services:
     restart: always
     image: ${REDIS_IMAGE:-swr.cn-south-1.myhuaweicloud.com/jeepay/redis:6.2.14}
     # 注意：熔断器状态/风控计数器持久化在此 Redis，重启需保留 RDB/AOF
-    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "${REDIS_MAXMEMORY:-512mb}", "--maxmemory-policy", "allkeys-lru"]
+    # 安全加固 M9: 强制要求外部注入 REDIS_PASSWORD，禁止匿名访问
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set}", "--appendonly", "yes", "--maxmemory", "${REDIS_MAXMEMORY:-512mb}", "--maxmemory-policy", "allkeys-lru"]
+    environment:
+      # 安全加固 M9: 注入 REDIS_PASSWORD 供 healthcheck 使用
+      REDIS_PASSWORD: "${REDIS_PASSWORD:?REDIS_PASSWORD must be set}"
     ports:
       - "6380:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # 安全加固 M9: healthcheck 使用密码 ping
+      test: ["CMD", "sh", "-c", "redis-cli -a \"$$REDIS_PASSWORD\" ping"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -287,7 +293,8 @@ services:
       - "3000:3000"
     environment:
       GF_SECURITY_ADMIN_USER: "${GRAFANA_ADMIN_USER:-admin}"
-      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-admin}"
+      # 安全加固 M4: 强制要求外部注入管理员密码，禁止默认 admin
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set}"
     volumes:
       - ./docker/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana_data:/var/lib/grafana

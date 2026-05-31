@@ -63,6 +63,11 @@ _ext_backup/
 # ====== 部署敏感配置（严禁入库） ======
 deploy/.env
 deploy/.env.local
+deploy/.env.prod.local
+# 一次性调试脚本不入库（stage*/diag*/probe* 系列）
+deploy/stage*.py
+deploy/diag*.py
+deploy/probe*.py
 *.log
 data/
 backup/

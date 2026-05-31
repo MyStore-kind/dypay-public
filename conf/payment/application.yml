@@ -37,7 +37,8 @@ spring:
     # yml填写url连接串， 无需将&符号进行转义
     url: jdbc:mysql://mysql:3306/jeepaydb?zeroDateTimeBehavior=convertToNull&useUnicode=true&characterEncoding=utf-8&autoReconnect=true&useSSL=false&allowPublicKeyRetrieval=true
     username: root
-    password: rootroot
+    # 安全加固 S2: 数据库密码强制由环境变量注入，禁止硬编码 rootroot
+    password: ${DB_PASSWORD:CHANGE_ME_DB}
     druid:
       # 连接池配置项
       initial-size: 5 #初始化时建立物理连接的个数
@@ -65,14 +66,15 @@ spring:
       port: 6379
       database: 3    #1库：运营平台  #2库：商户系统 #3库：支付网关
       timeout: 1000
-      password:
+      # 安全加固 M9: Redis 密码强制要求，避免空密码连接生产 Redis
+      password: ${REDIS_PASSWORD:CHANGE_ME_REDIS}
 
 # #activeMQ配置 ( 注意： activeMQ配置项需在spring的下级。默认 MQ 已切换到 rocketMQ，此段保留作参考；如需切回 activeMQ，请同步修改 isys.mq.vender )
 #  activemq:
 #    broker-url: failover:(tcp://activemq5:61616?wireFormat.maxInactivityDuration=0)  #连接地址
 #    in-memory: false # Jeepay项目不可使用内存模式， 需要连接多个消费者。
-#    user: system # activeMQ默认无需账密认证。 打开认证：activemq.xml添加simpleAuthenticationPlugin标签，账密在credentials.properties文件。
-#    password: manager
+#    user: ${ACTIVEMQ_USER:}  # 通过环境变量注入
+#    password: ${ACTIVEMQ_PASSWORD:}
 #    pool:
 #      enabled: true
 #      max-connections: 10
@@ -81,8 +83,8 @@ spring:
 #  #rabbitmq配置  ( 注意： rabbitmq配置项需在spring的下级 )
 #  rabbitmq:
 #    addresses: 172.20.0.11:5672
-#    username: admin
-#    password: admin
+#    username: ${RABBITMQ_USER:}  # 通过环境变量注入
+#    password: ${RABBITMQ_PASSWORD:}
 #    dynamic: true
 #    virtual-host: jeepay
 
@@ -109,18 +111,22 @@ logging:
   path: /jeepayhomes/service/logs  #日志存放地址
 
 # knife4j APIDOC文档
+# 生产环境通过环境变量 SPRINGDOC_ENABLED=false / KNIFE4J_ENABLED=false 关闭文档暴露
 springdoc:
-  swagger-ui:
-    path: /swagger-ui.html
   api-docs:
+    enabled: ${SPRINGDOC_ENABLED:false}
     path: /v3/api-docs
+  swagger-ui:
+    enabled: ${SPRINGDOC_ENABLED:false}
+    path: /swagger-ui.html
   group-configs:
     - group: 'default'
       display-name: '支付网关'
       paths-to-match: '/**'
       packages-to-scan: com.jeequan.jeepay.pay.ctrl.test
 knife4j:
-  enable: true
+  enable: ${KNIFE4J_ENABLED:false}
+  production: ${KNIFE4J_PRODUCTION:true}
   setting:
     language: zh_cn
     swagger-model-name: 公共响应
@@ -152,11 +158,16 @@ isys:
       endpoint: oss-cn-beijing.aliyuncs.com  #endpoint  如： oss-cn-beijing.aliyuncs.com
       public-bucket-name: bucket1 #公共读 桶名称
       private-bucket-name: bucket2  #私有 桶名称
-      access-key-id: KEY_KEY_KEY   #AccessKeyId
-      access-key-secret: SECRET_SECRET_SECRET  #AccessKeySecret
+      access-key-id: ${OSS_ACCESS_KEY_ID:}   # 安全加固 L1: 通过环境变量注入，service-type=aliyun-oss 时启动校验
+      access-key-secret: ${OSS_ACCESS_KEY_SECRET:}  # 安全加固 L1: 通过环境变量注入，service-type=aliyun-oss 时启动校验
 
   mq:
     vender: rocketMQ  #  切换MQ厂商， 支持：【 activeMQ  rabbitMQ  rocketMQ  aliYunRocketMQ 】， 需正确配置 【对应的yml参数】 和 【jeepay-components-mq项目下pom.xml中的依赖包】。
+
+# CORS 跨域白名单（S3/S4 修复）
+jeepay:
+  cors:
+    allowed-origins: ${JEEPAY_CORS_ORIGINS:http://localhost:*,http://127.0.0.1:*}
 
 rocketmq:
   name-server: rocketmq-namesrv:9876
@@ -172,10 +183,13 @@ rocketmq:
 # 支付网关为核心高并发链路，建议生产环境通过 management.server.port 独立端口
 # ============================================================
 management:
+  # 安全加固（S8）：actuator 通过独立端口暴露。
+  server:
+    port: ${MANAGEMENT_PORT:0}
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus,metrics
+        include: health,info
       base-path: /actuator
   endpoint:
     health:

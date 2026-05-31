@@ -319,9 +319,9 @@ public class CodeImgUtil {
             System.out.println("图片中格式：  ");
             System.out.println("encode： " + result.getBarcodeFormat());
         } catch (IOException e) {
-            e.printStackTrace();
+            _log.error("[CodeImgUtil] IO 异常", e); // 安全加固 M5
         } catch (NotFoundException e) {
-            e.printStackTrace();
+            _log.error("[CodeImgUtil] NotFound 异常", e); // 安全加固 M5
         }
     }
 

@@ -43,6 +43,10 @@ public class OssFileConfig {
     /** 图片类型后缀格式 **/
     public static final Set IMG_SUFFIX = new HashSet(Arrays.asList("jpg", "png", "jpeg", "gif"));
 
+    // 安全加固 S5: CERT/证书类文件白名单。
+    // 仅允许 PDF 与常见图片类型；明确禁止 jsp/php/html/htm/svg/xml/js/exe/bat/sh 等可执行/可被服务端解析的格式。
+    public static final Set CERT_SUFFIX = new HashSet(Arrays.asList("pdf", "jpg", "jpeg", "png", "gif", "webp"));
+
     /** 全部后缀格式的文件标识符 **/
     public static final String ALL_SUFFIX_FLAG = "*";
 
@@ -56,14 +60,15 @@ public class OssFileConfig {
     static{
         ALL_BIZ_TYPE_MAP.put(BIZ_TYPE.AVATAR, new OssFileConfig(OssSavePlaceEnum.PUBLIC, IMG_SUFFIX, DEFAULT_MAX_SIZE) );
         ALL_BIZ_TYPE_MAP.put(BIZ_TYPE.IF_BG, new OssFileConfig(OssSavePlaceEnum.PUBLIC, IMG_SUFFIX, DEFAULT_MAX_SIZE) );
-        ALL_BIZ_TYPE_MAP.put(BIZ_TYPE.CERT, new OssFileConfig(OssSavePlaceEnum.PRIVATE, new HashSet<>(Arrays.asList(ALL_SUFFIX_FLAG)), DEFAULT_MAX_SIZE) );
+        // 安全加固 S5: CERT 不再使用 "*"，改为显式白名单 CERT_SUFFIX
+        ALL_BIZ_TYPE_MAP.put(BIZ_TYPE.CERT, new OssFileConfig(OssSavePlaceEnum.PRIVATE, CERT_SUFFIX, DEFAULT_MAX_SIZE) );
     }
 
     /** 存储位置 **/
     private OssSavePlaceEnum ossSavePlaceEnum;
 
-    /** 允许的文件后缀, 默认全部类型 **/
-    private Set<String> allowFileSuffix = new HashSet<>(Arrays.asList(ALL_SUFFIX_FLAG));
+    /** 允许的文件后缀, 默认仅允许图片白名单 (安全加固 S5: 不再默认 "*") **/
+    private Set<String> allowFileSuffix = new HashSet<>(IMG_SUFFIX);
 
     /** 允许的文件大小, 单位： Byte **/
     private Long maxSize = DEFAULT_MAX_SIZE;

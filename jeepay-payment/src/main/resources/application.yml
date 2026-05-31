@@ -9,13 +9,13 @@ spring:
       database: 3    #1库：运营平台  #2库：商户系统 #3库：支付网关
 
 # OpenAPI / Knife4j APIDOC 文档
-# 任务 #10：仅在 dev / test profile 启用 Springdoc，避免生产环境元数据泄漏
+# 安全加固 S9: 生产环境通过环境变量 SPRINGDOC_ENABLED=false / KNIFE4J_ENABLED=false 关闭文档暴露
 springdoc:
   api-docs:
-    enabled: ${SPRINGDOC_ENABLED:true}   # 生产环境通过环境变量 SPRINGDOC_ENABLED=false 关闭
+    enabled: ${SPRINGDOC_ENABLED:false}
     path: /v3/api-docs
   swagger-ui:
-    enabled: ${SPRINGDOC_ENABLED:true}
+    enabled: ${SPRINGDOC_ENABLED:false}
     path: /swagger-ui.html
     tags-sorter: alpha
     operations-sorter: alpha
@@ -29,7 +29,7 @@ springdoc:
       paths-to-match: '/api/**'
       packages-to-scan: com.jeequan.jeepay.pay.ctrl.payorder,com.jeequan.jeepay.pay.ctrl.refund,com.jeequan.jeepay.pay.ctrl.transfer
 knife4j:
-  enable: true
+  enable: ${KNIFE4J_ENABLED:false}
   setting:
     language: zh_cn
     swagger-model-name: 公共响应
@@ -37,3 +37,12 @@ knife4j:
     - name: API
       locations: classpath:markdown/doc/*
       group: default
+
+# 安全加固 S8: actuator 端点最小化暴露；prometheus/metrics 仅在生产以独立 management 端口暴露
+management:
+  server:
+    port: ${MGMT_PORT:0}
+  endpoints:
+    web:
+      exposure:
+        include: health,info

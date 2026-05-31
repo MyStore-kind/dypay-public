@@ -24,6 +24,7 @@ import com.jeequan.jeepay.core.constants.CS;
 import com.jeequan.jeepay.core.entity.*;
 import com.jeequan.jeepay.core.exception.BizException;
 import com.jeequan.jeepay.service.mapper.MchInfoMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -42,6 +43,7 @@ import java.util.List;
  * @since 2021-04-27
  */
 @Service
+@Slf4j
 public class MchInfoService extends ServiceImpl<MchInfoMapper, MchInfo> {
 
     @Autowired private SysUserService sysUserService;
@@ -175,7 +177,9 @@ public class MchInfoService extends ServiceImpl<MchInfoMapper, MchInfo> {
             }
             return userIdList;
         }catch (Exception e) {
-            throw new BizException(e.getMessage());
+            // 安全加固 S7: 异常 message 不再原样透传给前端，避免泄露内部实现/堆栈细节
+            log.error("删除商户失败, mchNo={}", mchNo, e);
+            throw new BizException("操作失败，请联系管理员");
         }
     }
 }

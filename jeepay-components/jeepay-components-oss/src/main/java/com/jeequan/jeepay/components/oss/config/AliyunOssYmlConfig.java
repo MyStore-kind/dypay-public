@@ -15,7 +15,9 @@
  */
 package com.jeequan.jeepay.components.oss.config;
 
+import jakarta.annotation.PostConstruct;
 import lombok.Data;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -36,6 +38,29 @@ public class AliyunOssYmlConfig {
 	private String privateBucketName;
 	private String accessKeyId;
 	private String accessKeySecret;
+
+	@Autowired private OssYmlConfig ossYmlConfig;
+
+	/**
+	 * 安全加固 L1: 当 service-type=aliyun-oss 时校验 access-key 必须由环境变量注入，
+	 * 否则启动阶段直接失败，避免空凭据或占位串混入生产。
+	 */
+	@PostConstruct
+	public void validate() {
+		if (ossYmlConfig == null || ossYmlConfig.getOss() == null) {
+			return;
+		}
+		String serviceType = ossYmlConfig.getOss().getServiceType();
+		if (!"aliyun-oss".equalsIgnoreCase(serviceType)) {
+			return;
+		}
+		if (accessKeyId == null || accessKeyId.isBlank() || "KEY_KEY_KEY".equals(accessKeyId)) {
+			throw new IllegalStateException("[安全 L1] isys.oss.aliyun-oss.access-key-id 未配置，请通过 OSS_ACCESS_KEY_ID 环境变量注入");
+		}
+		if (accessKeySecret == null || accessKeySecret.isBlank() || "SECRET_SECRET_SECRET".equals(accessKeySecret)) {
+			throw new IllegalStateException("[安全 L1] isys.oss.aliyun-oss.access-key-secret 未配置，请通过 OSS_ACCESS_KEY_SECRET 环境变量注入");
+		}
+	}
 }
 
 

@@ -33,6 +33,9 @@ import java.nio.file.Paths;
 import java.security.SecureRandom;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+// 安全加固 M5: 引入日志，替换 e.printStackTrace()
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -46,6 +49,7 @@ import java.util.Map.Entry;
 */
 public class YsfHttpUtil {
 
+    private static final Logger log = LoggerFactory.getLogger(YsfHttpUtil.class); // 安全加固 M5
 	private static final String DEFAULT_CHARSET = "UTF-8";
 	private static final int DEFAULT_TIMEOUT = 60 * 1000; // 60 秒超时
 
@@ -141,21 +145,21 @@ public class YsfHttpUtil {
 					in.close();
 				}
 			} catch (Exception e) {
-				e.printStackTrace();
+				log.error("[YsfHttpUtil] 异常", e); // 安全加固 M5
 			}
 			try {
 				if (out != null) {
 					out.close();
 				}
 			} catch (Exception e) {
-				e.printStackTrace();
+				log.error("[YsfHttpUtil] 异常", e); // 安全加固 M5
 			}
 			try {
 				if (http != null) {
 					http.disconnect();
 				}
 			} catch (Exception e) {
-				e.printStackTrace();
+				log.error("[YsfHttpUtil] 异常", e); // 安全加固 M5
 			}
 		}
 	}
@@ -184,21 +188,21 @@ public class YsfHttpUtil {
 					in.close();
 				}
 			} catch (Exception e) {
-				e.printStackTrace();
+				log.error("[YsfHttpUtil] 异常", e); // 安全加固 M5
 			}
 			try {
 				if (out != null) {
 					out.close();
 				}
 			} catch (Exception e) {
-				e.printStackTrace();
+				log.error("[YsfHttpUtil] 异常", e); // 安全加固 M5
 			}
 			try {
 				if (http != null) {
 					http.disconnect();
 				}
 			} catch (Exception e) {
-				e.printStackTrace();
+				log.error("[YsfHttpUtil] 异常", e); // 安全加固 M5
 			}
 		}
 	}
@@ -390,7 +394,7 @@ public class YsfHttpUtil {
 				Path path = Paths.get(fileName);
 				contentType = Files.probeContentType(path);
 			} catch (Exception e) {
-				e.printStackTrace();
+				log.error("[YsfHttpUtil] 异常", e); // 安全加固 M5
 			}
 			if (contentType == null || contentType.isEmpty()) {
 				contentType = new MimetypesFileTypeMap().getContentType(fileName);

@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2026, 国际四方支付系统改造项目.
  */
+// 安全说明 M10: Telegram bot_token 从 DB 配置读取（t_sys_config 表），仅管理员可改；调用使用 RestTemplate 直连 Telegram API。
 package com.jeequan.jeepay.service.notify;
 
 import com.jeequan.jeepay.core.constants.RiskAlertType;
