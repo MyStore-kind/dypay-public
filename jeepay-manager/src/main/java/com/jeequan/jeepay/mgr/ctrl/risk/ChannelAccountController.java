@@ -27,7 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @Tag(name = "通道账号池管理")
 @RestController
-@RequestMapping("/api/channelAccount")
+@RequestMapping("/api/risk/channelAccount")
 public class ChannelAccountController extends CommonCtrl {
 
     @Autowired private ChannelAccountService channelAccountService;

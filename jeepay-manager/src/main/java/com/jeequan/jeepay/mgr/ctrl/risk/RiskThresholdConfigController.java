@@ -30,7 +30,7 @@ import java.util.List;
  */
 @Tag(name = "风险阈值配置")
 @RestController
-@RequestMapping("/api/riskThresholdConfig")
+@RequestMapping("/api/risk/threshold")
 public class RiskThresholdConfigController extends CommonCtrl {
 
     @Autowired private RiskThresholdConfigService thresholdConfigService;

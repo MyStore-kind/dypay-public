@@ -26,7 +26,7 @@ import java.util.List;
  */
 @Tag(name = "商户风险看板")
 @RestController
-@RequestMapping("/api/merchantRisk")
+@RequestMapping("/api/risk/merchantRisk")
 public class MerchantRiskController extends CommonCtrl {
 
     @Autowired private MerchantRiskService merchantRiskService;

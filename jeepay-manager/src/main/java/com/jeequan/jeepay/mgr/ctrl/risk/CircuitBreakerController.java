@@ -28,7 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @Tag(name = "风险熔断管理")
 @RestController
-@RequestMapping("/api/risk/circuit-breaker")
+@RequestMapping("/api/risk/circuitBreaker")
 public class CircuitBreakerController extends CommonCtrl {
 
     @Autowired private RiskCircuitBreakerEngine circuitBreakerEngine;

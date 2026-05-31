@@ -29,7 +29,7 @@ import java.util.List;
  */
 @Tag(name = "拒付管理")
 @RestController
-@RequestMapping("/api/chargeback")
+@RequestMapping("/api/risk/chargeback")
 public class ChargebackController extends CommonCtrl {
 
     @Autowired private ChargebackService chargebackService;
