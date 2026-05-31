@@ -322,4 +322,30 @@ public class PayPalKit {
         String c = currency.toUpperCase();
         return "JPY".equals(c) || "KRW".equals(c) || "VND".equals(c);
     }
+
+    // ============================================
+    // 跨站收银台专用：capture 已批准的订单
+    // ============================================
+    /**
+     * Capture 一个已 APPROVED 的 PayPal Order（跨站收银台用）
+     * 客户在前端 PayPal Buttons 点击 Approve 后，需要后端 capture 才真正扣款
+     *
+     * @return capture 后的 Order 对象（state=COMPLETED 表示成功）
+     */
+    public static Order captureOrder(JSONObject config, String paypalOrderId) {
+        PaypalServerSdkClient client = getClient(config);
+        OrdersController orders = client.getOrdersController();
+        com.paypal.sdk.models.OrdersCaptureInput input =
+                new com.paypal.sdk.models.OrdersCaptureInput.Builder(paypalOrderId).build();
+        try {
+            ApiResponse<Order> resp = orders.ordersCapture(input);
+            return resp.getResult();
+        } catch (ApiException e) {
+            logger.error("[PayPal] capture 订单 API 异常 orderId={}", paypalOrderId, e);
+            throw new BizException("操作失败，请联系管理员");
+        } catch (Exception e) {
+            logger.error("[PayPal] capture 订单失败 orderId={}", paypalOrderId, e);
+            throw new BizException("操作失败，请联系管理员");
+        }
+    }
 }

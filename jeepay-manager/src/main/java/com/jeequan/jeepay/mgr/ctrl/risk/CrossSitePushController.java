@@ -7,7 +7,6 @@ import com.alibaba.fastjson.JSONObject;
 import com.jeequan.jeepay.core.entity.CrossSitePushRecord;
 import com.jeequan.jeepay.core.model.ApiRes;
 import com.jeequan.jeepay.service.impl.CrossSitePushService;
-import com.jeequan.jeepay.service.impl.CrossSiteNotifyService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

@@ -49,12 +49,23 @@ public class CrossSiteChannelController {
         return toApiRes(r);
     }
 
-    /** 拉起 PayPal SDK 所需的 clientId */
+    /** 拉起 PayPal SDK 所需的 clientId 与 orderId */
     @PostMapping("/{payToken}/preparePaypal")
     public ApiRes<Object> preparePaypal(@PathVariable String payToken) {
         CrossSitePushRecord rec = pushService.loadByPayToken(payToken);
         CrossSiteChannelService.PrepareResult r = channelService.preparePaypal(rec);
         return toApiRes(r);
+    }
+
+    /** PayPal 前端 onApprove 后调用：服务端 capture 完成扣款 */
+    @PostMapping("/{payToken}/capturePaypal")
+    public ApiRes<Object> capturePaypal(@PathVariable String payToken) {
+        CrossSitePushRecord rec = pushService.loadByPayToken(payToken);
+        boolean ok = channelService.capturePaypal(rec);
+        JSONObject resp = new JSONObject();
+        resp.put("ok", ok);
+        resp.put("state", rec == null ? null : rec.getState());
+        return ok ? ApiRes.ok(resp) : ApiRes.customFail("capture 失败");
     }
 
     /**

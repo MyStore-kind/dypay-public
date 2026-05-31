@@ -261,28 +261,42 @@
             if (data.code !== 0) { showStatus('error', data.msg); return; }
             var d = data.data;
             if (!d.publishable_key) { showStatus('error', 'PayPal not configured.'); return; }
-            // 动态加载 PayPal SDK
+            // 服务端已创建 PayPal Order，前端拿到 orderID
+            var paypalOrderId = d.intent_id;
+
             var script = document.createElement('script');
-            script.src = 'https://www.paypal.com/sdk/js?client-id=' + d.publishable_key +
-              '&currency=' + (orderData.currency || 'USD');
+            script.src = 'https://www.paypal.com/sdk/js?client-id=' + encodeURIComponent(d.publishable_key) +
+              '&currency=' + (orderData.currency || 'USD') + '&intent=capture';
             script.onload = function() {
               window.paypal.Buttons({
-                createOrder: function() {
-                  // 用 PayPal Orders v2 API 创单（M1 简化：让 PayPal 端拿到金额即可）
-                  return fetch(PAY_API + '/' + payToken + '/preparePaypal', { method: 'POST' })
+                // 直接复用服务端已创建的 order
+                createOrder: function() { return paypalOrderId; },
+                onApprove: function(approveData) {
+                  showStatus('info', '<span class="loader"></span>Capturing payment...');
+                  return fetch(PAY_API + '/' + payToken + '/capturePaypal', { method: 'POST' })
                     .then(function(r) { return r.json(); })
-                    .then(function(d2) {
-                      // 没接通后端 PayPal 服务端创单时，前端直接走 SDK 创单
-                      return window.paypal.Orders ? null : null;
+                    .then(function(resp) {
+                      if (resp.code === 0) {
+                        pollPaymentSuccess();
+                      } else {
+                        showStatus('error', resp.msg || 'Capture failed.');
+                      }
                     });
                 },
-                onApprove: function(data) { pollPaymentSuccess(); },
-                onError: function(err) { showStatus('error', 'PayPal error.'); console.error(err); }
+                onError: function(err) {
+                  showStatus('error', 'PayPal error: ' + (err.message || 'unknown'));
+                  console.error(err);
+                },
+                onCancel: function() {
+                  showStatus('warn', 'Payment cancelled.');
+                }
               }).render('#paypal-button');
               window._paypalInitialized = true;
             };
+            script.onerror = function() { showStatus('error', 'Failed to load PayPal SDK.'); };
             document.body.appendChild(script);
-          });
+          })
+          .catch(function(e) { showStatus('error', 'Init error.'); console.error(e); });
       }
 
       // ===== 付款完成后轮询 =====

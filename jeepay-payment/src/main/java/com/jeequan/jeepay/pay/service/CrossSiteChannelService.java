@@ -7,6 +7,7 @@ import com.alibaba.fastjson.JSONObject;
 import com.jeequan.jeepay.core.entity.ChannelAccount;
 import com.jeequan.jeepay.core.entity.CrossSiteNotifyRecord;
 import com.jeequan.jeepay.core.entity.CrossSitePushRecord;
+import com.jeequan.jeepay.pay.channel.paypal.PayPalKit;
 import com.jeequan.jeepay.service.impl.ChannelAccountService;
 import com.jeequan.jeepay.service.impl.CrossSiteNotifyService;
 import com.jeequan.jeepay.service.impl.CrossSitePushService;
@@ -148,8 +149,8 @@ public class CrossSiteChannelService {
     }
 
     /**
-     * PayPal 预生成订单（前端用 paypal-js 加载后用 orderID 完成付款）
-     * 当前用最小实现：返回订单 ID 让前端拉起 PayPal SDK
+     * PayPal 预生成订单
+     * 真正调用 PayPal Orders API 创建订单，前端用返回的 orderID 让 PayPal Buttons 完成 approve
      */
     @Transactional(rollbackFor = Exception.class)
     public PrepareResult preparePaypal(CrossSitePushRecord rec) {
@@ -157,23 +158,83 @@ public class CrossSiteChannelService {
         if (CrossSitePushRecord.STATE_PAID.equals(rec.getState())) {
             return PrepareResult.fail("订单已付款");
         }
+        if (CrossSitePushRecord.STATE_EXPIRED.equals(rec.getState())) {
+            return PrepareResult.fail("订单已过期");
+        }
         if (CrossSitePushRecord.DECISION_REJECT.equals(rec.getRiskDecision())) {
             return PrepareResult.fail("风控拒绝");
         }
+
+        // 幂等：已有 orderId 直接返回
+        if ("paypal".equals(rec.getChannelProvider()) && rec.getChannelIntentId() != null) {
+            return PrepareResult.ok("paypal", rec.getChannelIntentId(), null, publishableKey("paypal"));
+        }
+
         ChannelAccount acc = pickAccount("paypal");
         if (acc == null) return PrepareResult.fail("无可用 PayPal 账号");
         JSONObject cfg;
         try { cfg = JSONObject.parseObject(acc.getConfigParams()); }
         catch (Exception e) { return PrepareResult.fail("PayPal 账号配置无效"); }
-        String pubKey = cfg.getString("clientId");  // PayPal 前端 SDK 需要 clientId
-        // PayPal 订单创建走 PaypalWrapper / REST API（此处简化：把 pay_token 作为 reference_id 给前端 SDK 创单）
-        // M1 阶段先返回前端创单所需信息，由前端 paypal-js 调用 createOrder 时再访问 /paypal/createOrder
-        if (rec.getChannelProvider() == null) {
+        String pubKey = cfg.getString("clientId");
+        if (pubKey == null || pubKey.isEmpty()) return PrepareResult.fail("PayPal clientId 缺失");
+
+        try {
+            // returnUrl/cancelUrl 用收银台自身（前端会接管跳转）
+            String returnUrl = rec.getReturnUrl() == null ? "" : rec.getReturnUrl();
+            String cancelUrl = returnUrl;  // 简化：取消也回 returnUrl，B 端按 state 区分
+            com.paypal.sdk.models.Order order = PayPalKit.createOrder(
+                    cfg, rec.getAmount(), rec.getCurrency(),
+                    rec.getPayToken(),  // 用 pay_token 作 customId，方便 Webhook 反查
+                    returnUrl, cancelUrl);
             rec.setChannelProvider("paypal");
-            rec.setState(CrossSitePushRecord.STATE_PAYING);
+            rec.setChannelIntentId(order.getId());
+            if (CrossSitePushRecord.STATE_AWAITING_PAY.equals(rec.getState())
+                    || CrossSitePushRecord.STATE_VERIFIED.equals(rec.getState())) {
+                rec.setState(CrossSitePushRecord.STATE_PAYING);
+            }
             crossSitePushService.updateById(rec);
+            logger.info("[CrossSite#PayPal] 创建订单 ok payToken={} orderId={}",
+                    rec.getPayToken(), order.getId());
+            return PrepareResult.ok("paypal", order.getId(), null, pubKey);
+        } catch (Exception e) {
+            logger.error("[CrossSite#PayPal] 创建订单失败 payToken={}", rec.getPayToken(), e);
+            return PrepareResult.fail("通道异常，请稍后再试");
         }
-        return PrepareResult.ok("paypal", null, null, pubKey);
+    }
+
+    /**
+     * PayPal 客户端 Approve 后由前端回调本接口，后端做 capture 完成扣款
+     * @return 成功 true / 失败 false
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public boolean capturePaypal(CrossSitePushRecord rec) {
+        if (rec == null || !"paypal".equals(rec.getChannelProvider())
+                || rec.getChannelIntentId() == null) {
+            return false;
+        }
+        if (CrossSitePushRecord.STATE_PAID.equals(rec.getState())) return true; // 幂等
+
+        ChannelAccount acc = pickAccount("paypal");
+        if (acc == null) return false;
+        JSONObject cfg;
+        try { cfg = JSONObject.parseObject(acc.getConfigParams()); }
+        catch (Exception e) { return false; }
+
+        try {
+            com.paypal.sdk.models.Order order = PayPalKit.captureOrder(cfg, rec.getChannelIntentId());
+            String status = order.getStatus() == null ? null : order.getStatus().toString();
+            if ("COMPLETED".equalsIgnoreCase(status)) {
+                markPaid(rec);
+                return true;
+            } else {
+                markFailed(rec, "PayPal status=" + status);
+                return false;
+            }
+        } catch (Exception e) {
+            logger.error("[CrossSite#PayPal] capture 失败 payToken={}", rec.getPayToken(), e);
+            markFailed(rec, "PayPal capture 异常");
+            return false;
+        }
     }
 
     // ============================================
