@@ -320,4 +320,19 @@ public class PayOrder extends BaseModel implements Serializable {
     @Schema(title = "accountId", description = "通道账号ID")
     private String accountId;
 
+    // ============ 结算链路扩展（mch_balance_patch.sql） ============
+
+    /** 应到账时间（T+N 计算结果，由订单成功钩子写入） */
+    @Schema(title = "settleAt", description = "应到账时间")
+    private java.util.Date settleAt;
+
+    /**
+     * 结算状态：
+     *   0 待入 pending（订单刚建，还没成功）
+     *   1 已入 pending（订单成功，等 T+N 结算）
+     *   2 已结算到 available
+     */
+    @Schema(title = "settleState", description = "结算状态")
+    private Byte settleState;
+
 }

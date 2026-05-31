@@ -81,6 +81,37 @@ public class CrossSiteChannelController {
         return "{\"received\":true}";
     }
 
+    /**
+     * PayPal Webhook 入口
+     *
+     * 在 PayPal Dashboard 配置：
+     *   Endpoint URL: https://pay.dypay.com/api/cross-site/pay/webhook/paypal
+     *   Events: PAYMENT.CAPTURE.COMPLETED / PAYMENT.CAPTURE.DENIED /
+     *           PAYMENT.CAPTURE.REFUNDED / CHECKOUT.ORDER.APPROVED /
+     *           CUSTOMER.DISPUTE.CREATED
+     *
+     * PayPal 通过 HTTP Header 传 6 个签名字段，我们透传给 verifyWebhookSignature
+     */
+    @PostMapping("/webhook/paypal")
+    public String paypalWebhook(@RequestBody String payload,
+                                javax.servlet.http.HttpServletRequest req) {
+        java.util.Map<String, String> headers = new java.util.HashMap<>();
+        // PayPal 6 个签名相关头都用大写传，统一收集
+        String[] keys = {
+                "PAYPAL-AUTH-ALGO", "PAYPAL-CERT-URL",
+                "PAYPAL-TRANSMISSION-ID", "PAYPAL-TRANSMISSION-SIG",
+                "PAYPAL-TRANSMISSION-TIME", "PAYPAL-AUTH-VERSION"
+        };
+        for (String k : keys) {
+            String v = req.getHeader(k);
+            if (v != null) headers.put(k, v);
+        }
+        boolean ok = channelService.handlePaypalWebhook(payload, headers);
+        if (!ok) logger.warn("[CrossSite#PaypalWebhook] handled=false");
+        // 同样永远返回 200 防风暴
+        return "{\"received\":true}";
+    }
+
     /** 查询订单当前状态（前端付款完成后轮询） */
     @GetMapping("/{payToken}/status")
     public ApiRes<Object> status(@PathVariable String payToken) {

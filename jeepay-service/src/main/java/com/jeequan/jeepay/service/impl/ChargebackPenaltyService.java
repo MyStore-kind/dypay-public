@@ -53,6 +53,13 @@ public class ChargebackPenaltyService extends ServiceImpl<ChargebackPenaltyRecor
     @Autowired private NotificationService notificationService;
 
     /**
+     * 汇率服务，币种归一化用。
+     * required=false：旧测试上下文 / 早期未引入汇率模块时仍能加载本服务
+     */
+    @Autowired(required = false)
+    private CurrencyRateService currencyRateService;
+
+    /**
      * 执行扣款。失败仅记日志，不抛异常。
      *
      * 调用时机：ChargebackService.receiveChargeback() 落库成功后立刻调用。
@@ -102,18 +109,59 @@ public class ChargebackPenaltyService extends ServiceImpl<ChargebackPenaltyRecor
                 return saveSkipped(chargeback, "惩罚配置未启用");
             }
 
-            BigDecimal multiplier = cfg.getPenaltyMultiplier() == null
-                    ? new BigDecimal("3.00") : cfg.getPenaltyMultiplier();
-            long expectedDeduct = new BigDecimal(principal)
-                    .multiply(multiplier)
-                    .setScale(0, RoundingMode.HALF_UP)
-                    .longValue();
-
-            // ===== 4. 读取商户余额 =====
+            // ===== 4. 读取商户 =====
             MchInfo mch = mchInfoService.getById(mchNo);
             if (mch == null) {
                 return saveSkipped(chargeback, "商户不存在：" + mchNo);
             }
+
+            // ===== 4b. 币种归一化 =====
+            // 拒付本金 principal 单位是 payOrder.currency 的最小货币单位（分/聪等）
+            // 商户余额单位是 mch.settlementCurrency 的最小货币单位
+            // 不同币种必须换算后再扣，否则会"扣错钱"
+            //
+            // 设计：
+            //   原币种 = payOrder.currency（如 USD）
+            //   目标币种 = mch.settlementCurrency（如 CNY）；为空时回落 USD
+            //   汇率优先用 payOrder.frozenRate（下单时锁定，最稳定）
+            //   没有 frozenRate 时实时查 t_currency_rate
+            //   汇率服务异常 → 兜底：按 1:1 扣（保守，避免误扣巨额）+ 流水标记
+            String orderCcy = payOrder.getCurrency() == null ? "USD" : payOrder.getCurrency().toUpperCase();
+            String settleCcy = mch.getSettlementCurrency() == null ? "USD"
+                    : mch.getSettlementCurrency().toUpperCase();
+            long principalInSettle = principal;
+            BigDecimal usedRate = BigDecimal.ONE;
+            String rateNote = null;
+            if (!orderCcy.equals(settleCcy)) {
+                // 先看订单冻结汇率（只有同 base/target 时才用，这里没字段记录方向，
+                // 保守做法：只有当 settleCcy 也是 USD 这种"基准币种"时不用 frozenRate，
+                // 其他情况都查实时；frozenRate 主要给退款 / 对账场景）
+                if (currencyRateService != null) {
+                    try {
+                        usedRate = currencyRateService.getRealTimeRate(orderCcy, settleCcy);
+                        rateNote = "realtime";
+                    } catch (Exception e) {
+                        logger.warn("[Penalty] 汇率查询失败 {} -> {}，按 1:1 兜底扣款 mchNo={}",
+                                orderCcy, settleCcy, mchNo, e);
+                        usedRate = BigDecimal.ONE;
+                        rateNote = "fallback_1_1";
+                    }
+                } else {
+                    rateNote = "no_rate_service_1_1";
+                }
+                principalInSettle = new BigDecimal(principal)
+                        .multiply(usedRate)
+                        .setScale(0, RoundingMode.HALF_UP)
+                        .longValue();
+            }
+
+            BigDecimal multiplier = cfg.getPenaltyMultiplier() == null
+                    ? new BigDecimal("3.00") : cfg.getPenaltyMultiplier();
+            long expectedDeduct = new BigDecimal(principalInSettle)
+                    .multiply(multiplier)
+                    .setScale(0, RoundingMode.HALF_UP)
+                    .longValue();
+
             long availableBefore = nullSafe(mch.getBalanceAvailable());
             long pendingBefore = nullSafe(mch.getBalancePending());
 
@@ -168,6 +216,15 @@ public class ChargebackPenaltyService extends ServiceImpl<ChargebackPenaltyRecor
                     .setBalancePending(pendingAfter);
             mchInfoService.updateById(upd);
 
+            // 把币种换算信息合并到 reason 里，方便排查
+            String finalReason = reason;
+            if (!orderCcy.equals(settleCcy)) {
+                String fxInfo = String.format("[FX %s->%s rate=%s src=%s principal_settle=%d]",
+                        orderCcy, settleCcy, usedRate.toPlainString(),
+                        rateNote == null ? "?" : rateNote, principalInSettle);
+                finalReason = finalReason == null ? fxInfo : (fxInfo + " " + finalReason);
+            }
+
             ChargebackPenaltyRecord rec = new ChargebackPenaltyRecord()
                     .setChargebackRecordId(chargeback.getId())
                     .setPayOrderId(chargeback.getPayOrderId())
@@ -183,7 +240,7 @@ public class ChargebackPenaltyService extends ServiceImpl<ChargebackPenaltyRecor
                     .setBalancePendingBefore(pendingBefore)
                     .setBalancePendingAfter(pendingAfter)
                     .setState(state)
-                    .setReason(reason)
+                    .setReason(finalReason)
                     .setCreatedAt(new Date());
             save(rec);
 

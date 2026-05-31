@@ -31,6 +31,8 @@ import com.jeequan.jeepay.core.entity.PayOrder;
 import com.jeequan.jeepay.core.entity.PayWay;
 import com.jeequan.jeepay.service.mapper.*;
 import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -47,6 +49,8 @@ import java.util.*;
  */
 @Service
 public class PayOrderService extends ServiceImpl<PayOrderMapper, PayOrder> {
+
+    private static final Logger log = LoggerFactory.getLogger(PayOrderService.class);
 
     @Autowired private PayOrderMapper payOrderMapper;
     @Autowired private MchInfoMapper mchInfoMapper;
@@ -72,6 +76,13 @@ public class PayOrderService extends ServiceImpl<PayOrderMapper, PayOrder> {
                 .eq(PayOrder::getPayOrderId, payOrderId).eq(PayOrder::getState, PayOrder.STATE_INIT));
     }
 
+    /**
+     * 商户余额入账（required=false 让旧上下文仍能加载）
+     * 订单状态从 STATE_ING → STATE_SUCCESS 时调用，将订单金额入账到 pending
+     */
+    @Autowired(required = false)
+    private MchBalanceService mchBalanceService;
+
     /** 更新订单状态  【支付中】 --》 【支付成功】 **/
     public boolean updateIng2Success(String payOrderId, String channelOrderNo, String channelUserId){
 
@@ -81,8 +92,39 @@ public class PayOrderService extends ServiceImpl<PayOrderMapper, PayOrder> {
         updateRecord.setChannelUser(channelUserId);
         updateRecord.setSuccessTime(new Date());
 
-        return update(updateRecord, new LambdaUpdateWrapper<PayOrder>()
+        // ===== T+N 结算字段（mch_balance_patch.sql） =====
+        // 取商户 settle_delay_days（缺省 1），算出 settle_at = 当前 + N 天
+        // 同时把 settle_state 置为 1（待结算到 available）
+        PayOrder oldOrder = getById(payOrderId);
+        if (oldOrder != null) {
+            int delay = 1;
+            try {
+                MchInfo mch = mchInfoMapper.selectById(oldOrder.getMchNo());
+                if (mch != null && mch.getSettleDelayDays() != null && mch.getSettleDelayDays() >= 0) {
+                    delay = mch.getSettleDelayDays();
+                }
+            } catch (Exception ignored) {}
+            updateRecord.setSettleAt(new Date(System.currentTimeMillis()
+                    + delay * 24L * 60 * 60 * 1000));
+            updateRecord.setSettleState((byte) 1);
+        }
+
+        boolean ok = update(updateRecord, new LambdaUpdateWrapper<PayOrder>()
                 .eq(PayOrder::getPayOrderId, payOrderId).eq(PayOrder::getState, PayOrder.STATE_ING));
+
+        // 入账到 pending（独立 try 避免影响主流程）
+        if (ok && oldOrder != null && mchBalanceService != null) {
+            try {
+                mchBalanceService.creditPending(
+                        oldOrder.getMchNo(),
+                        oldOrder.getAmount() == null ? 0 : oldOrder.getAmount(),
+                        oldOrder.getCurrency(),
+                        payOrderId);
+            } catch (Exception e) {
+                log.error("[PayOrder] 余额入账失败 payOrderId={}", payOrderId, e);
+            }
+        }
+        return ok;
     }
 
     /** 更新订单状态  【支付中】 --》 【订单关闭】 **/

@@ -310,6 +310,128 @@ public class CrossSiteChannelService {
     }
 
     // ============================================
+    // 2b. PayPal Webhook 处理
+    // ============================================
+
+    /**
+     * 处理 PayPal Webhook 事件
+     *
+     * PayPal Dashboard 配置：
+     *   Endpoint URL: https://pay.dypay.com/api/cross-site/pay/webhook/paypal
+     *   Events:
+     *     - PAYMENT.CAPTURE.COMPLETED   capture 成功
+     *     - PAYMENT.CAPTURE.DENIED      capture 被拒
+     *     - PAYMENT.CAPTURE.REFUNDED    退款发生
+     *     - CHECKOUT.ORDER.APPROVED     用户已在 PayPal 端授权（可选，前端 onApprove 已处理）
+     *     - CUSTOMER.DISPUTE.CREATED    投诉/拒付（与 ChargebackService 联动）
+     *
+     * 反查记录的依据：
+     *   createOrder 时我们把 pay_token 写到 purchase_unit.custom_id
+     *   webhook event 里 resource.purchase_units[0].custom_id 即 pay_token
+     *   capture 事件里 resource.custom_id 即 pay_token（CAPTURE.* 事件 resource 是 capture 对象本身）
+     *
+     * @param payload 原始报文（必须 raw，验签需要）
+     * @param headers PayPal 透传的 6 个签名相关 header
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public boolean handlePaypalWebhook(String payload, java.util.Map<String, String> headers) {
+        ChannelAccount acc = pickAccount("paypal");
+        if (acc == null) {
+            logger.error("[CrossSite#PayPal Webhook] 无可用账号");
+            return false;
+        }
+        JSONObject cfg;
+        try { cfg = JSONObject.parseObject(acc.getConfigParams()); }
+        catch (Exception e) { return false; }
+
+        // 1. 验签
+        boolean verified = com.jeequan.jeepay.pay.channel.paypal.PayPalKit
+                .verifyWebhookSignature(cfg, headers, payload);
+        if (!verified) {
+            logger.error("[CrossSite#PayPal Webhook] 验签失败");
+            return false;
+        }
+
+        // 2. 解析事件
+        JSONObject event;
+        try { event = JSONObject.parseObject(payload); }
+        catch (Exception e) {
+            logger.error("[CrossSite#PayPal Webhook] payload 解析失败", e);
+            return false;
+        }
+        String eventType = event.getString("event_type");
+        JSONObject resource = event.getJSONObject("resource");
+        if (resource == null) {
+            logger.warn("[CrossSite#PayPal Webhook] resource 缺失 type={}", eventType);
+            return true; // 不识别也回 200
+        }
+
+        // 3. 反查 pay_token
+        //   - CAPTURE.* 事件：resource.custom_id 直接是 pay_token
+        //   - CHECKOUT.ORDER.* 事件：resource.purchase_units[0].custom_id
+        //   - DISPUTE 事件：用 invoice_id 或关联 capture_id 反查
+        String payToken = resource.getString("custom_id");
+        if (payToken == null) {
+            com.alibaba.fastjson.JSONArray units = resource.getJSONArray("purchase_units");
+            if (units != null && !units.isEmpty()) {
+                payToken = units.getJSONObject(0).getString("custom_id");
+            }
+        }
+        if (payToken == null) {
+            // DISPUTE 事件没有 custom_id，需要从 disputed_transactions[0].seller_transaction_id 反查
+            // 暂只记日志，后续接 ChargebackService 时补
+            logger.info("[CrossSite#PayPal Webhook] 找不到 pay_token type={} resourceId={}",
+                    eventType, resource.getString("id"));
+            return true;
+        }
+
+        CrossSitePushRecord rec = crossSitePushService.loadByPayToken(payToken);
+        if (rec == null) {
+            logger.warn("[CrossSite#PayPal Webhook] 找不到记录 payToken={}", payToken);
+            return true;
+        }
+
+        // 4. 事件分发
+        switch (eventType == null ? "" : eventType) {
+            case "PAYMENT.CAPTURE.COMPLETED":
+                markPaid(rec);
+                break;
+            case "PAYMENT.CAPTURE.DENIED":
+            case "PAYMENT.CAPTURE.DECLINED":
+                markFailed(rec, "PayPal: capture denied");
+                break;
+            case "PAYMENT.CAPTURE.REFUNDED":
+            case "PAYMENT.CAPTURE.REVERSED":
+                markRefunded(rec, eventType);
+                break;
+            case "CHECKOUT.ORDER.APPROVED":
+                // 用户在 PayPal 端 Approve，前端 onApprove 会触发 capture
+                // 这里仅日志，不做状态变更（避免与 capturePaypal 竞争）
+                logger.info("[CrossSite#PayPal Webhook] APPROVED payToken={} orderId={}",
+                        payToken, resource.getString("id"));
+                break;
+            case "CUSTOMER.DISPUTE.CREATED":
+                // 拒付/投诉发生 — 后续接 ChargebackService.receiveChargeback 入口
+                logger.warn("[CrossSite#PayPal Webhook] DISPUTE CREATED payToken={} disputeId={}",
+                        payToken, resource.getString("dispute_id"));
+                break;
+            default:
+                logger.info("[CrossSite#PayPal Webhook] 忽略 type={} payToken={}", eventType, payToken);
+        }
+        return true;
+    }
+
+    /**
+     * 标记已退款（PayPal Webhook 收到 REFUNDED 时）
+     * 设计：state 保留 paid，新增字段标记退款状态留待后续 t_refund_record 扩展
+     * 现在仅入队通知 B 站
+     */
+    public void markRefunded(CrossSitePushRecord rec, String reasonEvent) {
+        crossSiteNotifyService.enqueue(rec, CrossSiteNotifyRecord.EVENT_REFUNDED);
+        logger.info("[CrossSite] 退款事件 payToken={} event={}", rec.getPayToken(), reasonEvent);
+    }
+
+    // ============================================
     // 3. 状态机
     // ============================================
 

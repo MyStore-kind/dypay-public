@@ -207,4 +207,8 @@ public class MchInfo extends BaseModel implements Serializable {
     @Schema(title = "balanceFrozen", description = "已冻结余额（分），仅审计")
     private Long balanceFrozen;
 
+    /** T+N 结算延迟天数（默认 T+1，由 mch_balance_patch.sql 增加） */
+    @Schema(title = "settleDelayDays", description = "结算延迟天数 T+N，默认 1")
+    private Integer settleDelayDays;
+
 }
