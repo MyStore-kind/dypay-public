@@ -1,0 +1,68 @@
+name: Build (mvn package)
+
+# 真实编译验证：每次 push / PR 触发，看 +1550 行新代码到底能不能编过。
+# 这是替代"本地无 mvn 跑不了"的唯一可靠手段。
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch: # 允许手工在 Actions 页面点 Run
+
+jobs:
+  build:
+    name: Compile & Package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          # pom.xml 里 java.version=17，与生产 Dockerfile.multistage 的 eclipse-temurin:17 对齐
+          java-version: '17'
+          distribution: 'temurin'
+          # 自动缓存 ~/.m2/repository
+          cache: 'maven'
+
+      - name: Print versions
+        run: |
+          java -version
+          mvn -version
+
+      - name: Maven package (skip tests)
+        # -DskipTests：本仓库目前没有正式单测，跳过是为了缩短到 5-8 分钟
+        # -B：batch 模式，输出干净
+        # -ntp：no transfer progress，去掉下载进度条
+        # --fail-at-end：让所有模块都尝试编译完再报错，能一次看到全部错误而不是只看第一个
+        # 排除 jeepay-z-codegen：纯代码生成器，生产不打包
+        run: |
+          mvn -B -ntp --fail-at-end -DskipTests \
+            -pl '!jeepay-z-codegen' \
+            clean package
+
+      - name: List build artifacts
+        # 编译成功后列出三个可执行 jar，作为肉眼可见的"真的产出来了"凭证
+        if: success()
+        run: |
+          echo "=== 产物清单 ==="
+          ls -lh jeepay-payment/target/*.jar 2>/dev/null || echo "缺 jeepay-payment jar"
+          ls -lh jeepay-manager/target/*.jar 2>/dev/null || echo "缺 jeepay-manager jar"
+          ls -lh jeepay-merchant/target/*.jar 2>/dev/null || echo "缺 jeepay-merchant jar"
+
+      - name: Upload jars as workflow artifacts
+        # 编译成功后把 3 个 jar 上传到 Actions Artifacts，保留 7 天。
+        # 服务器侧可以走 gh CLI 下载，或者你点 Actions 页面手工下载。
+        # 这是把 "GitHub Actions 编译" 和 "服务器部署" 解耦的关键。
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dypay-jars
+          path: |
+            jeepay-payment/target/*.jar
+            jeepay-manager/target/*.jar
+            jeepay-merchant/target/*.jar
+          retention-days: 7
+          if-no-files-found: error
