@@ -1,4 +1,4 @@
-# Jeepay 国际支付 - 本地/源码自构建 Compose 文件
+# Dypay 国际支付 - 本地/源码自构建 Compose 文件
 #
 # 启动命令：       docker compose up -d
 # 重新编译：       docker compose up --build
@@ -8,7 +8,7 @@
 # ============================================================
 # 新增模块说明（任务 #07-反风控/调度）
 # ============================================================
-# 以下 4 个 @Scheduled 调度类全部部署在 jeepay-manager 容器中，无需额外 service：
+# 以下 4 个 @Scheduled 调度类全部部署在 dypay-manager 容器中，无需额外 service：
 #   - ChannelHealthSchedule         (通道健康度评分)
 #   - MerchantRiskScoreSchedule     (商户风控评分)
 #   - AgentProfitSettleSchedule     (代理利润结算)
@@ -32,16 +32,16 @@
 services:
   mysql:
     hostname: mysql
-    container_name: jeepay-mysql
+    container_name: dypay-mysql
     restart: always
     image: ${MYSQL_IMAGE:-swr.cn-south-1.myhuaweicloud.com/jeepay/mysql:8}
     environment:
       LANG: C.UTF-8
       # 安全加固 S2: 强制启动前注入 MYSQL_ROOT_PASSWORD，未设置则容器启动失败
       MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set}"
-      MYSQL_DATABASE: "jeepaydb"
-      MYSQL_USER: "jeepay"
-      MYSQL_PASSWORD: "${MYSQL_USER_PASSWORD:-jeepay}"
+      MYSQL_DATABASE: "dypaydb"
+      MYSQL_USER: "dypay"
+      MYSQL_PASSWORD: "${MYSQL_USER_PASSWORD:-dypay}"
     ports:
       - "13306:3306"
     healthcheck:
@@ -56,14 +56,14 @@ services:
       # 反风控/国际化补丁 SQL，按命名顺序执行
       - ./sql/patch.sql:/docker-entrypoint-initdb.d/02-patch.sql:ro
     networks:
-      jeepay:
+      dypay:
         ipv4_address: 172.20.0.10
 
   rocketmq-namesrv:
     platform: linux/amd64
     image: ${ROCKETMQ_IMAGE:-swr.cn-south-1.myhuaweicloud.com/jeepay/rocketmq:5.3.1}
     hostname: rocketmq-namesrv
-    container_name: jeepay-rocketmq-namesrv
+    container_name: dypay-rocketmq-namesrv
     restart: always
     user: "0:0"
     ports:
@@ -80,14 +80,14 @@ services:
     volumes:
       - rocketmq_namesrv_logs:/home/rocketmq/logs
     networks:
-      jeepay:
+      dypay:
         ipv4_address: 172.20.0.11
 
   rocketmq-broker:
     platform: linux/amd64
     image: ${ROCKETMQ_IMAGE:-swr.cn-south-1.myhuaweicloud.com/jeepay/rocketmq:5.3.1}
     hostname: rocketmq-broker
-    container_name: jeepay-rocketmq-broker
+    container_name: dypay-rocketmq-broker
     restart: always
     user: "0:0"
     ports:
@@ -112,13 +112,13 @@ services:
       - rocketmq_broker_store:/home/rocketmq/store
       - ./docker/rocketmq/broker/conf/broker.conf:/home/rocketmq/rocketmq-5.3.1/conf/broker.conf:ro
     networks:
-      jeepay:
+      dypay:
         ipv4_address: 172.20.0.13
 
   redis:
     platform: linux/amd64
     hostname: redis
-    container_name: jeepay-redis
+    container_name: dypay-redis
     restart: always
     image: ${REDIS_IMAGE:-swr.cn-south-1.myhuaweicloud.com/jeepay/redis:6.2.14}
     # 注意：熔断器状态/风控计数器持久化在此 Redis，重启需保留 RDB/AOF
@@ -139,16 +139,16 @@ services:
     volumes:
       - redis:/data
     networks:
-      jeepay:
+      dypay:
         ipv4_address: 172.20.0.12
 
   payment:
     build:
       context: ./jeepay-payment
       dockerfile: Dockerfile
-    image: jeepay-payment:latest
+    image: dypay-payment:latest
     hostname: payment
-    container_name: jeepay-payment
+    container_name: dypay-payment
     restart: always
     ports:
       - "9216:9216"
@@ -181,18 +181,18 @@ services:
       - ./logs/payment:/jeepayhomes/service/logs
       - ./conf/payment/application.yml:/jeepayhomes/service/app/application.yml
     networks:
-      jeepay:
+      dypay:
         ipv4_address: 172.20.0.21
 
   manager:
     build:
       context: ./jeepay-manager
       dockerfile: Dockerfile
-    image: jeepay-manager:latest
+    image: dypay-manager:latest
     hostname: manager
     # 调度类（ChannelHealthSchedule / MerchantRiskScoreSchedule /
     # AgentProfitSettleSchedule / CurrencyRateSchedule）随 manager 启动
-    container_name: jeepay-manager
+    container_name: dypay-manager
     restart: always
     ports:
       - "9217:9217"
@@ -231,16 +231,16 @@ services:
       - ./logs/manager:/jeepayhomes/service/logs
       - ./conf/manager/application.yml:/jeepayhomes/service/app/application.yml
     networks:
-      jeepay:
+      dypay:
         ipv4_address: 172.20.0.22
 
   merchant:
     build:
       context: ./jeepay-merchant
       dockerfile: Dockerfile
-    image: jeepay-merchant:latest
+    image: dypay-merchant:latest
     hostname: merchant
-    container_name: jeepay-merchant
+    container_name: dypay-merchant
     restart: always
     ports:
       - "9218:9218"
@@ -263,7 +263,7 @@ services:
       - ./logs/merchant:/jeepayhomes/service/logs
       - ./conf/merchant/application.yml:/jeepayhomes/service/app/application.yml
     networks:
-      jeepay:
+      dypay:
         ipv4_address: 172.20.0.23
 
   # ============================================================
@@ -272,7 +272,7 @@ services:
   # ============================================================
   prometheus:
     image: ${PROMETHEUS_IMAGE:-prom/prometheus:v2.54.1}
-    container_name: jeepay-prometheus
+    container_name: dypay-prometheus
     profiles: ["observability"]
     restart: always
     ports:
@@ -281,12 +281,12 @@ services:
       - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     networks:
-      jeepay:
+      dypay:
         ipv4_address: 172.20.0.41
 
   grafana:
     image: ${GRAFANA_IMAGE:-grafana/grafana:11.2.0}
-    container_name: jeepay-grafana
+    container_name: dypay-grafana
     profiles: ["observability"]
     restart: always
     ports:
@@ -301,11 +301,11 @@ services:
     depends_on:
       - prometheus
     networks:
-      jeepay:
+      dypay:
         ipv4_address: 172.20.0.42
 
 networks:
-  jeepay:
+  dypay:
     ipam:
       config:
         - subnet: 172.20.0.0/16

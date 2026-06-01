@@ -1,5 +1,22 @@
 # 宝塔面板（BaoTa）"Docker 应用"专用 compose 文件 - 国际支付增强版
 #
+# ⚠️ 本文件 Dypay 改名期间故意保留原 jeepay 命名，原因如下（请勿盲改）：
+#   1. 第 30 行 jeepay-configs init 容器从 https://gitee.com/jeequan/jeepay.git
+#      官方仓库拉配置文件，改本仓库地址前需要先 fork 一份到 Dypay 自己的私有
+#      git 仓库，并维护与上游的 cherry-pick 同步机制。
+#   2. 第 217/263/292 行使用 swr.cn-south-1.myhuaweicloud.com/jeepay/* 的华为云
+#      SWR 公开镜像，改 image tag 前需要：
+#        a. 本地用 docker-compose.deploy.yml 构建出 dypay-{payment,manager,merchant}
+#           三个私有镜像；
+#        b. 推送到自己的容器镜像仓库（华为云 SWR / 阿里云 ACR / Docker Hub）；
+#        c. 在此处把 MANAGER_IMAGE / MERCHANT_IMAGE / PAYMENT_IMAGE 默认值改为
+#           自己的私有镜像地址。
+#   3. /jeepayhomes/ 路径写在镜像内部（Dockerfile + application.yml），不是 compose
+#      层能改的，须等 Dockerfile 重构后一起更新。
+#
+# 上线 Checklist：私有镜像就绪 → 本文件全量改名 → 灰度部署 → 监控验证
+#
+# ============================================================
 # 与 docker-compose.yml 的差异：
 #   - 业务镜像走 SWR 公开仓库，无需本地源码构建
 #   - 配置文件通过 jeepay-configs init 容器从 git 拉取
