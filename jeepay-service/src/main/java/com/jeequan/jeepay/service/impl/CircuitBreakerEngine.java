@@ -67,6 +67,12 @@ public class CircuitBreakerEngine {
     private static final String CB_REASON_AUTO    = "AUTO_CIRCUIT_BREAKER";
     private static final long   CB_REASON_TTL_SEC = 7L * 24 * 3600;
 
+    // R1 日额熔断写入"商户熔断态" key，与 RiskCircuitBreakerEngine 的 KEY_CB_MCH 同前缀，
+    // 让现有路由层 isCircuitBroken(mchNo) 判断能直接生效，避免再开一套并行 key。
+    // 不复用 RiskCircuitBreakerEngine.triggerForMerchant：那条路径会把 MchInfo.state 写成 2（FROZEN，需人工解除），
+    // 而 R1 是"30 分钟自动恢复"语义，更适合 state=CS.NO + Redis TTL 过期后由调度/release 自动启用。
+    private static final String KEY_CB_MCH = "risk:cb:mch:";
+
     /**
      * 检查通道账号是否需要触发动作
      * 由调度任务每次更新健康度后调用
@@ -258,4 +264,66 @@ public class CircuitBreakerEngine {
      * 该判断按当前职责切分应由 RiskCircuitBreakerEngine.release 完成，本类不越界。
      * 本类只负责"打上标记"，将"如何使用标记"留给恢复方。
      */
+
+    // ============================================
+    // R1：商户日交易额熔断 公共入口
+    // ============================================
+
+    /**
+     * R1 专用：因"商户当日累计交易额超阈值"触发熔断。
+     *
+     * 为什么单独开一个 public 入口而不让 {@link MerchantDailyAmountGuard} 直接调
+     * {@link #autoSuspendMerchant}：
+     *   - {@code autoSuspendMerchant} 的 Redis 标记 TTL 写死 7 天（B-2 的设计前提是"评分维度"
+     *     的长期停用），R1 是"30 分钟自动恢复"语义，需要参数化 TTL。
+     *   - 不动 B-2 的代码：本方法在其外面再包一层，先写"商户熔断态" key（带 R1 的 TTL，
+     *     供路由层 isCircuitBroken 立刻识别并拒单），再复用 {@code autoSuspendMerchant}
+     *     完成 MchInfo.state 翻转 + reason 旁路标记。
+     *   - 之所以仍然调 autoSuspendMerchant，是因为 schema/旁路标记/state 联动逻辑都在那里写过一次，
+     *     单点维护更安全。
+     *
+     * @param mchNo   商户号
+     * @param seconds 熔断时长（秒），R1 默认 1800
+     * @param reason  触发原因，写入 Redis 熔断态 snapshot，便于排查
+     */
+    public void tripMerchantByDailyAmount(String mchNo, long seconds, String reason) {
+        if (mchNo == null || seconds <= 0) return;
+        try {
+            // 1) 写"商户熔断态" key，带 R1 自定义 TTL：过期即自动恢复。
+            //    snapshot 字段命名与 RiskCircuitBreakerEngine.buildSnapshot 保持一致，
+            //    后台看板/运营查询可以共用一套解析逻辑。
+            com.alibaba.fastjson.JSONObject snap = new com.alibaba.fastjson.JSONObject();
+            snap.put("action", "SUSPEND");
+            snap.put("reason", reason);
+            snap.put("triggeredAt", System.currentTimeMillis());
+            snap.put("source", "DAILY_AMOUNT_GUARD");
+            RedisUtil.setString(KEY_CB_MCH + mchNo, snap.toJSONString(), seconds, TimeUnit.SECONDS);
+
+            // 2) 复用 B-2：翻转 MchInfo.state=CS.NO + 打 AUTO_CIRCUIT_BREAKER 标记
+            //    为什么不写在这里：state 与旁路标记的联动逻辑（含失败降级）已经在 B-2 落过，
+            //    再写一遍会产生两处维护点。
+            autoSuspendMerchant(mchNo, reason);
+
+            logger.warn("[Circuit-R1] 商户 {} 因日交易额超阈熔断 {}s，原因：{}", mchNo, seconds, reason);
+        } catch (Exception e) {
+            // 熔断动作失败必须吞掉，不让支付主流程异常；状态可在下一笔订单/调度补救。
+            logger.error("[Circuit-R1] 商户 {} 日额熔断动作执行失败", mchNo, e);
+        }
+    }
+
+    /**
+     * R1：判断商户当前是否已被熔断（用于 Guard 幂等，避免重复 trip）。
+     * 不直接复用 RiskCircuitBreakerEngine.isCircuitBroken，原因：那边把"限流态"
+     * 也算作熔断，对 R1 来说限流不应阻止累计，语义偏宽。
+     */
+    public boolean isMerchantCircuitBroken(String mchNo) {
+        if (mchNo == null) return false;
+        try {
+            return RedisUtil.hasKey(KEY_CB_MCH + mchNo);
+        } catch (Exception e) {
+            // Redis 异常时倾向"未熔断"——宁可多 trip 一次也不放过真有问题的商户。
+            logger.error("[Circuit-R1] 检查熔断态失败 mchNo={}", mchNo, e);
+            return false;
+        }
+    }
 }

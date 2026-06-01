@@ -56,6 +56,10 @@ public class StripeChannelNoticeService implements IChannelNoticeService {
     @Autowired
     private RefundOrderService refundOrderService;
 
+    /** R3：Stripe Radar EFW -> 自动冻结卡 BIN 处理器 */
+    @Autowired
+    private StripeEfwHandler stripeEfwHandler;
+
     @Override
     public String getIfCode() {
         return StripeConfig.IF_CODE;
@@ -155,11 +159,18 @@ public class StripeChannelNoticeService implements IChannelNoticeService {
             // ============ 拒付 / 早期欺诈预警 ============
             } else if (StripeConfig.EVENT_DISPUTE_CREATED.equals(eventType)
                     || StripeConfig.EVENT_DISPUTE_FUNDS_WITHDRAWN.equals(eventType)
-                    || StripeConfig.EVENT_DISPUTE_UPDATED.equals(eventType)
-                    || StripeConfig.EVENT_EARLY_FRAUD_WARNING.equals(eventType)) {
+                    || StripeConfig.EVENT_DISPUTE_UPDATED.equals(eventType)) {
                 // 转发到统一拒付处理服务（落库 + 状态更新）
                 // 为什么不在这里更新订单：拒付不改变原订单成功状态，由运营决定是否退款
                 chargebackService.onChargebackEvent("stripe", wrapper.root);
+                channelRetMsg.setChannelState(ChannelRetMsg.ChannelState.WAITING);
+
+            } else if (StripeConfig.EVENT_EARLY_FRAUD_WARNING.equals(eventType)) {
+                // R3：Stripe Radar EFW —— 30 分钟内自动冻结该卡 BIN
+                // 为什么单拎出来：EFW 不是拒付（也不会写 ChargebackRecord），需要走独立的冻结链路；
+                // 但同时也保留交给 chargebackService 让其留痕（沿用既有"辅助事件落库"行为）
+                chargebackService.onChargebackEvent("stripe", wrapper.root);
+                stripeEfwHandler.handle(verifiedEvent);
                 channelRetMsg.setChannelState(ChannelRetMsg.ChannelState.WAITING);
 
             } else {

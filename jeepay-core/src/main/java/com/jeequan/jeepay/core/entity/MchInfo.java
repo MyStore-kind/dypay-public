@@ -192,6 +192,22 @@ public class MchInfo extends BaseModel implements Serializable {
     @Schema(title = "autoSuspendThreshold", description = "拒付率自动暂停阈值(%)")
     private java.math.BigDecimal autoSuspendThreshold;
 
+    // ===== R1 日交易额熔断（risk_v3_patch.sql 增加） =====
+    // 设计要点：
+    //   两列均允许 NULL，语义="回落到 t_risk_threshold_config 的全局默认"。
+    //   不在 Java 侧给默认值，避免运营在表里清空后被实体覆盖回去。
+    //   命名遵循 *_threshold / *_seconds 习惯，与 auto_suspend_threshold 风格一致；
+    //   MyBatis-Plus 默认下划线转驼峰，schema 列 daily_amount_threshold_usd / daily_amount_circuit_seconds
+    //   无需 @TableField 显式映射。
+
+    /** 商户级日交易额熔断阈值(USD)，NULL=使用全局默认（merchant.daily_amount.threshold_usd） */
+    @Schema(title = "dailyAmountThresholdUsd", description = "商户级日交易额熔断阈值(USD)，NULL=回落全局默认")
+    private java.math.BigDecimal dailyAmountThresholdUsd;
+
+    /** 商户级日额熔断时长(秒)，NULL=使用全局默认（merchant.daily_amount.circuit_seconds） */
+    @Schema(title = "dailyAmountCircuitSeconds", description = "商户级日额熔断时长(秒)，NULL=回落全局默认")
+    private Integer dailyAmountCircuitSeconds;
+
     // ===== 商户余额（拒付惩罚扣款来源，chargeback_penalty_patch.sql 增加） =====
     // 设计：单位为"分"。available 第一优先扣，pending 第二优先扣，frozen 仅审计
 
