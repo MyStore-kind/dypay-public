@@ -16,16 +16,20 @@ import org.springframework.stereotype.Component;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 邮件告警渠道
  *
  * 设计要点：
  *  - SMTP 配置从 t_sys_config 读取：smtp.host / smtp.port / smtp.username / smtp.password / smtp.from
- *  - 每次发送动态构造 JavaMailSenderImpl：让运营改配置后无需重启即可生效
+ *  - SMTP 配置加 60s 本地缓存：避免每次 send 触发 5-6 次 DB 读（高频告警放大问题）。
+ *    运营改配置后最长 60s 内自动生效，无需重启。
  *  - 失败抛 RuntimeException，由 Notifier 统一重试
  *  - 配置缺失时降级为日志，不抛错
+ *  - 标题前缀：风险类告警自动加 "[风险告警] "；通用入口（type=SYSTEM）不加，避免语义错乱。
  *
  * @author 反风控改造组
  */
@@ -34,11 +38,27 @@ public class EmailChannel implements IRiskNotifyChannel {
 
     private static final Logger logger = LoggerFactory.getLogger(EmailChannel.class);
 
+    /**
+     * 风险告警标题前缀。
+     * 为什么用常量：避免散落字面量；通用类型（SYSTEM）走另一个分支，不加此前缀。
+     */
+    private static final String SUBJECT_PREFIX_RISK = "[风险告警] ";
+
+    /** SMTP 配置本地缓存 TTL（毫秒） */
+    private static final long SMTP_CACHE_TTL_MS = 60_000L;
+
     @Autowired
     private RiskThresholdConfigService riskCfg;
 
     @Autowired
     private SysConfigService sysConfigService;
+
+    /**
+     * SMTP 配置缓存：避免单次 send 6 次 DB 读。
+     * 为什么用 volatile + Map：单 JVM 内的 best-effort 缓存即可，无需引入 Caffeine；60s TTL 满足"改配置后短延迟生效"语义。
+     */
+    private volatile long smtpCacheTs = 0L;
+    private final Map<String, String> smtpCache = new ConcurrentHashMap<>();
 
     @Override
     public String channelName() {
@@ -50,7 +70,9 @@ public class EmailChannel implements IRiskNotifyChannel {
         if (!riskCfg.getBoolean("notify.email.enabled", false)) {
             return false;
         }
-        if (extractEmails(type).isEmpty()) {
+        if (extractEmails(type).isEmpty()
+                && StringUtils.isBlank(riskCfg.getString("notify.email.recipients", ""))) {
+            // 既无 per-type 配置，也无全局 fallback，认定未启用
             return false;
         }
         return StringUtils.isNotBlank(getSmtpConfig("smtp.host"))
@@ -88,7 +110,7 @@ public class EmailChannel implements IRiskNotifyChannel {
         SimpleMailMessage msg = new SimpleMailMessage();
         msg.setFrom(from);
         msg.setTo(to);
-        msg.setSubject("[风险告警] " + title);
+        msg.setSubject(buildSubject(type, title));
         msg.setText(body);
 
         // 失败抛 MailException -> 上层 Notifier 捕获并重试
@@ -97,8 +119,22 @@ public class EmailChannel implements IRiskNotifyChannel {
     }
 
     /**
-     * 按配置动态构造 JavaMailSender
-     * 为什么不做单例：运营调整 SMTP 后立即生效，避免重启服务
+     * 拼接邮件标题。
+     * 为什么按 type 分支：SYSTEM 是通用入口（NotificationService.sendEmail 委托过来的），
+     * 不应被强行加 "[风险告警]" 前缀——否则注册通知/对账提醒都会变成风险语义。
+     * 其余类型属于明确的风险告警，统一前缀方便运营在邮箱里筛选。
+     */
+    private String buildSubject(RiskAlertType type, String title) {
+        if (type == RiskAlertType.SYSTEM) {
+            return title;
+        }
+        return SUBJECT_PREFIX_RISK + title;
+    }
+
+    /**
+     * 按配置动态构造 JavaMailSender。
+     * 注意：每次 send 都 new 一个 sender 是有意的（SMTP 配置改后立即生效），
+     *      性能负担在 getSmtpConfig 的 DB 读上——通过 60s 本地缓存平衡。
      */
     private JavaMailSenderImpl buildSender() {
         JavaMailSenderImpl impl = new JavaMailSenderImpl();
@@ -119,9 +155,21 @@ public class EmailChannel implements IRiskNotifyChannel {
         return impl;
     }
 
+    /**
+     * 读取 SMTP 配置项，带 60s 本地缓存。
+     * 为什么不在 SysConfigService 层加：避免影响其他调用方的语义；本类是高频读热点。
+     */
     private String getSmtpConfig(String key) {
-        com.jeequan.jeepay.core.entity.SysConfig c = sysConfigService.getById(key);
-        return c == null ? "" : StringUtils.defaultString(c.getConfigVal());
+        long now = System.currentTimeMillis();
+        if (now - smtpCacheTs > SMTP_CACHE_TTL_MS) {
+            // 过期清空，等待重新加载（best-effort，多线程同时进入只会多读几次）
+            smtpCache.clear();
+            smtpCacheTs = now;
+        }
+        return smtpCache.computeIfAbsent(key, k -> {
+            com.jeequan.jeepay.core.entity.SysConfig c = sysConfigService.getById(k);
+            return c == null ? "" : StringUtils.defaultString(c.getConfigVal());
+        });
     }
 
     /** 解析 notify.targets.{type}，取 '|' 后段为邮箱列表 */

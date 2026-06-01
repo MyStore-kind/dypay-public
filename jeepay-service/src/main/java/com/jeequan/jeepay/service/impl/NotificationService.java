@@ -8,12 +8,12 @@ import com.jeequan.jeepay.service.notify.EmailChannel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 
 /**
  * 通知服务
@@ -49,7 +49,20 @@ public class NotificationService {
     @Autowired
     private EmailChannel emailChannel;
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
+
+    /**
+     * 为什么显式构造 RestTemplate 而不是 new RestTemplate()：
+     * JDK 默认 connect/read timeout 都是无限大。Telegram API 若 DNS 慢或被墙，整个 notify()
+     * 调用链会被吊死（风控告警链路是同步的，会阻塞业务线程）。
+     * 这里设置 3s 连接 / 5s 读，配合上层 try-catch 保证最坏情况下也只阻塞 8s。
+     */
+    public NotificationService() {
+        SimpleClientHttpRequestFactory rf = new SimpleClientHttpRequestFactory();
+        rf.setConnectTimeout(3_000);
+        rf.setReadTimeout(5_000);
+        this.restTemplate = new RestTemplate(rf);
+    }
 
     /**
      * 发送告警
@@ -84,34 +97,31 @@ public class NotificationService {
                     URLEncoder.encode(message, StandardCharsets.UTF_8));
             restTemplate.getForObject(url, String.class);
         } catch (Exception e) {
-            logger.error("[Notify] Telegram 发送失败", e);
+            // 注意：URL 含 bot_token，异常栈可能携带 URL；此处仅写消息体不写 URL，避免日志泄露 token
+            logger.error("[Notify] Telegram 发送失败: {}", e.getMessage());
         }
     }
 
     /**
      * 发送邮件
      * 为什么委托给 EmailChannel：复用 SMTP 配置 + JavaMailSender 实现，避免两份代码维护两套行为。
-     * 注意事项：本入口走的是"全局收件人"配置 notify.email.recipients；
-     *           若要按告警类型分发，请直接调用 RiskAlertNotifier，由其分发到 EmailChannel。
+     * 为什么不再前置判断 recipients：EmailChannel.isEnabled / send 内部已完成"per-type 配置 → 全局 fallback → 跳过"链路，
+     *   在此前置只查全局 recipients 会与内部 fallback 语义不一致（per-type 配了但全局空时，本类会错误跳过）。
      */
     public void sendEmail(String title, String content) {
         try {
-            String recipients = thresholdConfig.getString("notify.email.recipients", "");
-            if (recipients.isEmpty()) {
-                logger.debug("[Notify] 邮件收件人未配置，跳过");
+            if (!emailChannel.isEnabled(RiskAlertType.SYSTEM)) {
+                logger.debug("[Notify] EmailChannel 未启用或配置缺失，跳过");
                 return;
             }
-            // 复用 EmailChannel 的 send：以 SYSTEM 类型走默认收件人（fallback 路径）
-            // 失败不抛错（业务约定），仅记日志
             String to = emailChannel.send(RiskAlertType.SYSTEM, title, content);
             if (to == null || to.isEmpty()) {
                 logger.warn("[Notify] 邮件发送返回空 to，可能 SMTP 配置缺失：{}", title);
             } else {
-                logger.info("[Notify] 邮件发送成功: {} -> {}", title, Arrays.asList(to.split(",")));
+                logger.info("[Notify] 邮件发送成功: title={}, to={}", title, to);
             }
         } catch (Exception e) {
             logger.error("[Notify] 邮件发送失败", e);
         }
     }
 }
-

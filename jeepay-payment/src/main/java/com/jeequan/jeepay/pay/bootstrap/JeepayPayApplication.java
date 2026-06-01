@@ -111,7 +111,6 @@ public class JeepayPayApplication {
      * CORS 允许的来源白名单。
      * 为什么：原实现 addAllowedOriginPattern(ALL) 配合 allowCredentials=true 等同于"允许任意站点带 Cookie 跨域"，是 S3 严重风险。
      * 改为从 jeepay.cors.allowed-origins 注入，默认值仅供本地开发；生产通过环境变量 JEEPAY_CORS_ORIGINS 覆盖。
-     * 注意：列表中若仍包含 "*"，则保留原 Pattern 通配兼容旧行为（仅本地开发使用，生产严禁配 "*"）。
      */
     @Value("${jeepay.cors.allowed-origins:http://localhost,http://localhost:8083,http://localhost:8082}")
     private String corsAllowedOrigins;
@@ -128,13 +127,23 @@ public class JeepayPayApplication {
             // 安全加固 S3：不再使用 addAllowedOriginPattern("*")，改读白名单
             // 为什么：allowCredentials=true 时星号通配会被任意攻击者站点利用，必须显式列出可信前端域名
             String[] origins = corsAllowedOrigins == null ? new String[0] : corsAllowedOrigins.split(",");
+            int added = 0;
             for (String origin : origins) {
                 String trimmed = origin.trim();
                 if (trimmed.isEmpty()) {
                     continue;
                 }
-                // 兼容本地开发：仍允许 http://localhost:* 这类模式串
+                // 注意：addAllowedOriginPattern 同时支持精确 origin（如 https://pay.example.com）
+                // 和模式串（如 http://localhost:*），无需区分本地/生产分支
                 config.addAllowedOriginPattern(trimmed);
+                added++;
+            }
+            // Fail-fast：白名单为空时（如 JEEPAY_CORS_ORIGINS="" 被透传），
+            // 静默通过会导致所有跨域请求被拒，运维难以定位；启动失败更易发现。
+            if (added == 0) {
+                throw new IllegalStateException(
+                        "jeepay.cors.allowed-origins 解析后为空，请检查环境变量 JEEPAY_CORS_ORIGINS。"
+                                + " 如需关闭 CORS，请改用 isys.allow-cors=false");
             }
 
             config.addAllowedHeader(CorsConfiguration.ALL);   //允许任何请求头

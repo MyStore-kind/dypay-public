@@ -22,35 +22,35 @@ SET NAMES utf8mb4;
 --   命令行: htpasswd -nbBC 10 "" "你的新密码" | tr -d ':\n' | sed 's/^\$2y/$2a/'
 --
 -- 把生成的密文替换下方 :NEW_BCRYPT_HASH，把新盐替换 :NEW_SALT（16-32 位随机字符串）。
--- 未替换占位前，本脚本会主动报错防误执行。
+-- 占位以 ':' 开头是判别特征，未替换时下方守卫会让脚本主动失败。
 -- ------------------------------------------------------------
 
--- 占位校验：用 SIGNAL 触发显式错误（MySQL 5.5+ 支持）
--- 注意：此处生效条件是脚本中仍含字面量 ':NEW_BCRYPT_HASH'，运维替换后即可跳过
+-- ------------------------------------------------------------
+-- 2. 占位守卫（必须替换占位才能继续，否则触发 SQL 错误中止脚本）
+-- ------------------------------------------------------------
+-- 原理：1/0 在 MySQL 8 默认 sql_mode（含 ERROR_FOR_DIVISION_BY_ZERO）下会抛
+--      ER_DIVIDE_BY_ZERO (1365)，mysql 客户端批处理模式会中断后续语句。
+-- 仅当字面量仍以 ':' 开头（占位未替换）时触发；运维真实替换后跳过本守卫。
+-- 配合下方 UPDATE 的 WHERE 占位条件，构成"双保险"。
 SELECT
-  IF(
-    ':NEW_BCRYPT_HASH' = ':NEW_BCRYPT_HASH',
-    (SELECT 1 FROM (SELECT 1) x WHERE 'PLACEHOLDER_NOT_REPLACED' = 'EXECUTE_REJECTED'),
-    1
-  ) AS placeholder_check;
+  CASE
+    WHEN ':NEW_BCRYPT_HASH' LIKE ':%' OR ':NEW_SALT' LIKE ':%'
+    THEN (1/0)  -- 触发 ER_DIVIDE_BY_ZERO 让脚本中断
+    ELSE 1
+  END AS placeholder_guard;
 
 -- ------------------------------------------------------------
--- 2. 改 admin 账号密文 + 盐
+-- 3. 改 admin 账号密文 + 盐
 -- ------------------------------------------------------------
+-- WHERE 中再次校验占位未替换：守卫被绕过时（如 sql_mode 调整）仍能保护 admin 密码不被改成字面量。
 UPDATE t_sys_user_auth
   SET credential = ':NEW_BCRYPT_HASH',
       salt       = ':NEW_SALT'
 WHERE user_id = 801
   AND identity_type = '1'
-  AND identifier = 'admin';
-
--- ------------------------------------------------------------
--- 3. 标记 admin 为"初始账号，登录后需立即创建运营账号并停用本号"
---    （在 t_sys_user.avatar_url 留备注，便于运营注意）
--- ------------------------------------------------------------
-UPDATE t_sys_user
-  SET sys_user_id = sys_user_id  -- 占位，避免空 UPDATE
-WHERE sys_user_id = 801;
+  AND identifier = 'admin'
+  AND ':NEW_BCRYPT_HASH' NOT LIKE ':%'   -- 占位未替换时本条 UPDATE 0 行受影响
+  AND ':NEW_SALT'        NOT LIKE ':%';
 
 -- ------------------------------------------------------------
 -- 4. 验证：执行完成后查询应返回 1 行，且 salt != 'testkey'
