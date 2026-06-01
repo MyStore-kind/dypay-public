@@ -43,13 +43,28 @@ CREATE TABLE IF NOT EXISTS db_patch_version (
 SQL
 
 # ---------- 待执行 SQL 列表（顺序敏感） ----------
-# 注意：jeepay-origin/init.sql 仅首次需要；如目标库已存在 t_sys_user 则跳过
+# 注意：
+# 1. jeepay-origin/init.sql 仅首次需要；如目标库已存在 t_sys_user 则会被幂等表跳过
+# 2. risk_v3_patch.sql：本批次新增，R1 商户日额熔断 + R3 Stripe EFW 卡 BIN 冻结的 schema
+# 3. post_install_hardening.sql 故意不加入清单 —— 它含占位（:NEW_BCRYPT_HASH / :NEW_SALT），
+#    必须运营手工编辑后单独执行：
+#       mysql -uroot -p${MYSQL_ROOT_PASSWORD} ${MYSQL_DATABASE} < sql/post_install_hardening.sql
+#    不挂自动化的原因：占位守卫会触发 1/0 错误中止，会把本脚本的幂等链路弄脏。
+# 顺序与 docs/14-生产部署补丁序列与回滚SOP.md 保持一致
 SQL_FILES=(
   "sql/jeepay-origin/init.sql"
   "sql/international_payment_patch.sql"
   "sql/risk_control_patch.sql"
   "sql/risk_circuit_breaker_patch.sql"
   "sql/permission_menu_patch.sql"
+  "sql/cross_site_patch.sql"
+  "sql/cross_site_channel_patch.sql"
+  "sql/cross_site_hosted_patch.sql"
+  "sql/cross_site_menu_patch.sql"
+  "sql/chargeback_penalty_patch.sql"
+  "sql/chargeback_penalty_menu_patch.sql"
+  "sql/mch_balance_patch.sql"
+  "sql/risk_v3_patch.sql"
 )
 
 apply_sql() {
