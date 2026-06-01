@@ -124,6 +124,9 @@ services:
       PAYPAL_API_BASE: "${PAYPAL_API_BASE:-https://api-m.sandbox.paypal.com}"
       RISK_CONTROL_ENABLED: "${RISK_CONTROL_ENABLED:-true}"
       RISK_GRAYSCALE: "${RISK_GRAYSCALE:-10}"
+      # CORS 白名单（S3/S4 安全加固）：生产请在 .env 中精确指定可信前端域名，逗号分隔
+      # 默认值仅供本地开发；payment 服务对外暴露收银台 + Webhook 回调，必须配
+      JEEPAY_CORS_ORIGINS: "${JEEPAY_CORS_ORIGINS:-http://localhost,http://localhost:8083,http://localhost:8082}"
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/9216'"]
       interval: 15s
@@ -171,6 +174,8 @@ services:
       SMTP_PASS: "${SMTP_PASS:-}"
       SMTP_FROM: "${SMTP_FROM:-}"
       RISK_CONTROL_ENABLED: "${RISK_CONTROL_ENABLED:-true}"
+      # CORS 白名单：默认仅本地，生产由 .env 注入运营后台真实域名
+      JEEPAY_CORS_ORIGINS: "${JEEPAY_CORS_ORIGINS:-http://localhost,http://localhost:8083,http://localhost:8082}"
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/9217'"]
       interval: 15s
@@ -205,6 +210,8 @@ services:
       SPRING_REDIS_PASSWORD: "${REDIS_PASSWORD}"
       ROCKETMQ_NAME_SERVER: "rocketmq-namesrv:9876"
       JEEPAY_JWT_SECRET: "${JEEPAY_JWT_SECRET}"
+      # CORS 白名单：默认仅本地，生产由 .env 注入商户后台真实域名
+      JEEPAY_CORS_ORIGINS: "${JEEPAY_CORS_ORIGINS:-http://localhost,http://localhost:8083,http://localhost:8082}"
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/9218'"]
       interval: 15s

@@ -37,7 +37,15 @@ public enum RiskAlertType {
     DAILY_VOLUME_SPIKE("日交易突增"),
 
     /** 代理商被冻结（分润结算时检测到） */
-    AGENT_FROZEN("代理商冻结告警");
+    AGENT_FROZEN("代理商冻结告警"),
+
+    /**
+     * 通用系统告警（无明确分类时使用）。
+     * 为什么：NotificationService.sendEmail() 复用 EmailChannel 时需要一个枚举入参，
+     *         但其调用方多为"标题+正文"通用入口，没有归类业务，遂使用本兜底类型。
+     * 运营侧可在 t_risk_threshold_config 中配置 notify.targets.system 决定全局收件人。
+     */
+    SYSTEM("系统通用告警");
 
     private final String displayName;
 

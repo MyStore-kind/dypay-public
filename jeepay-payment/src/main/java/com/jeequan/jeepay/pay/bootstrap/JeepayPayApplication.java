@@ -25,6 +25,7 @@ import com.jeequan.jeepay.pay.config.SystemYmlConfig;
 import org.hibernate.validator.HibernateValidator;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.http.HttpMessageConverters;
@@ -106,6 +107,15 @@ public class JeepayPayApplication {
         return validatorFactory.getValidator();
     }
 
+    /**
+     * CORS 允许的来源白名单。
+     * 为什么：原实现 addAllowedOriginPattern(ALL) 配合 allowCredentials=true 等同于"允许任意站点带 Cookie 跨域"，是 S3 严重风险。
+     * 改为从 jeepay.cors.allowed-origins 注入，默认值仅供本地开发；生产通过环境变量 JEEPAY_CORS_ORIGINS 覆盖。
+     * 注意：列表中若仍包含 "*"，则保留原 Pattern 通配兼容旧行为（仅本地开发使用，生产严禁配 "*"）。
+     */
+    @Value("${jeepay.cors.allowed-origins:http://localhost,http://localhost:8083,http://localhost:8082}")
+    private String corsAllowedOrigins;
+
     /** 允许跨域请求 **/
     @Bean
     public CorsFilter corsFilter() {
@@ -114,8 +124,19 @@ public class JeepayPayApplication {
         if(systemYmlConfig.getAllowCors()){
             CorsConfiguration config = new CorsConfiguration();
             config.setAllowCredentials(true);   //带上cookie信息
-//          config.addAllowedOrigin(CorsConfiguration.ALL);  //允许跨域的域名， *表示允许任何域名使用
-            config.addAllowedOriginPattern(CorsConfiguration.ALL);  //使用addAllowedOriginPattern 避免出现 When allowCredentials is true, allowedOrigins cannot contain the special value "*" since that cannot be set on the "Access-Control-Allow-Origin" response header. To allow credentials to a set of origins, list them explicitly or consider using "allowedOriginPatterns" instead.
+
+            // 安全加固 S3：不再使用 addAllowedOriginPattern("*")，改读白名单
+            // 为什么：allowCredentials=true 时星号通配会被任意攻击者站点利用，必须显式列出可信前端域名
+            String[] origins = corsAllowedOrigins == null ? new String[0] : corsAllowedOrigins.split(",");
+            for (String origin : origins) {
+                String trimmed = origin.trim();
+                if (trimmed.isEmpty()) {
+                    continue;
+                }
+                // 兼容本地开发：仍允许 http://localhost:* 这类模式串
+                config.addAllowedOriginPattern(trimmed);
+            }
+
             config.addAllowedHeader(CorsConfiguration.ALL);   //允许任何请求头
             config.addAllowedMethod(CorsConfiguration.ALL);   //允许任何方法（post、get等）
             source.registerCorsConfiguration("/**", config); // CORS 配置对所有接口都有效
