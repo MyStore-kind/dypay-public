@@ -69,13 +69,12 @@ public class AgentProfitService extends ServiceImpl<AgentProfitRecordMapper, Age
         // 2. 获取代理商层级链（顺序：[直接代理, 父代理, 祖代理]，最多 3 个）
         List<AgentInfo> agentChain = agentInfoService.getAgentChain(mchInfo.getAgentNo());
 
-        // 3. 确定分润基数（优先用结算金额，规避汇率波动）
-        Long baseAmount = payOrder.getSettlementAmount() != null
-                ? payOrder.getSettlementAmount()
-                : payOrder.getAmount();
-        String profitCurrency = StringUtils.isNotBlank(payOrder.getSettlementCurrency())
-                ? payOrder.getSettlementCurrency()
-                : payOrder.getCurrency();
+        // 3. 确定分润基数
+        // 说明：PayOrder 当前实体只有 amount + currency，无独立 settlement 字段。
+        // 后续如接入实时汇率结算（设计文档 V3 §6.2），再加 PayOrderExtension 表的 settlement_amount / settlement_currency 兜底。
+        // 这里直接用订单原币种金额，保证编译通过 + 业务可用；汇率波动风险在 V3 PHASE-2 处理。
+        Long baseAmount = payOrder.getAmount();
+        String profitCurrency = payOrder.getCurrency();
 
         // 4. 批量收集，事务内一次性 saveBatch，减少 SQL 往返
         List<AgentProfitRecord> toInsert = new ArrayList<>(3);
