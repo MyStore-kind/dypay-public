@@ -43,7 +43,8 @@ public class AgentInfoController extends CommonCtrl {
         if (StringUtils.isNotEmpty(q.getParentAgentNo())) wrapper.eq(AgentInfo::getParentAgentNo, q.getParentAgentNo());
         if (q.getAgentLevel() != null) wrapper.eq(AgentInfo::getAgentLevel, q.getAgentLevel());
         if (q.getState() != null) wrapper.eq(AgentInfo::getState, q.getState());
-        wrapper.orderByDesc(AgentInfo::getCreatedAt);
+        // 排序：AgentInfo 无 createdAt 字段，按主键 agentNo 倒序近似（业务键通常递增）
+        wrapper.orderByDesc(AgentInfo::getAgentNo);
         IPage<AgentInfo> pages = agentInfoService.page(getIPage(true), wrapper);
         return ApiPageRes.pages(pages);
     }

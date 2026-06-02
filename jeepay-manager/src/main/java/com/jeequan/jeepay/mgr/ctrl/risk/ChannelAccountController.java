@@ -41,7 +41,8 @@ public class ChannelAccountController extends CommonCtrl {
         if (q.getState() != null) wrapper.eq(ChannelAccount::getState, q.getState());
         if (q.getHealthStatus() != null) wrapper.eq(ChannelAccount::getHealthStatus, q.getHealthStatus());
         if (StringUtils.isNotEmpty(q.getRiskTier())) wrapper.eq(ChannelAccount::getRiskTier, q.getRiskTier());
-        wrapper.orderByDesc(ChannelAccount::getCreatedAt);
+        // 排序：ChannelAccount 无 createdAt 字段，按主键 accountId 倒序近似
+        wrapper.orderByDesc(ChannelAccount::getAccountId);
         IPage<ChannelAccount> pages = channelAccountService.page(getIPage(true), wrapper);
         return ApiPageRes.pages(pages);
     }

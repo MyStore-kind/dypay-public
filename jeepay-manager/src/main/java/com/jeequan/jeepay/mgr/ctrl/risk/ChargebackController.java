@@ -44,7 +44,8 @@ public class ChargebackController extends CommonCtrl {
         if (StringUtils.isNotEmpty(q.getIfCode())) wrapper.eq(ChargebackRecord::getIfCode, q.getIfCode());
         if (StringUtils.isNotEmpty(q.getState())) wrapper.eq(ChargebackRecord::getState, q.getState());
         if (StringUtils.isNotEmpty(q.getPayOrderId())) wrapper.eq(ChargebackRecord::getPayOrderId, q.getPayOrderId());
-        wrapper.orderByDesc(ChargebackRecord::getCreatedAt);
+        // 排序：ChargebackRecord 无 createdAt 字段，按主键 id 倒序（id 自增 = 创建顺序）
+        wrapper.orderByDesc(ChargebackRecord::getId);
         IPage<ChargebackRecord> pages = chargebackService.page(getIPage(true), wrapper);
         return ApiPageRes.pages(pages);
     }
