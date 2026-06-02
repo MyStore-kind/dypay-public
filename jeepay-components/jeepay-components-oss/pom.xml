@@ -31,6 +31,14 @@
       <scope>provided</scope> <!-- 仅编译依赖该jar， 运行时存在 -->
     </dependency>
 
+    <!-- Spring Security：OssFileController 的 @PreAuthorize 注解（安全加固 M3） -->
+    <!-- provided 作用域：library 不引导自身 SecurityFilterChain；运行期由 jeepay-manager / jeepay-merchant 提供 -->
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-core</artifactId>
+      <scope>provided</scope>
+    </dependency>
+
     <!-- slf4j -->
     <dependency>
       <groupId>org.slf4j</groupId>
