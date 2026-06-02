@@ -57,6 +57,13 @@
       <artifactId>spring-boot-starter-mail</artifactId>
     </dependency>
 
+    <!-- Spring Data Redis：MerchantDailyAmountGuard 等风控组件依赖 StringRedisTemplate -->
+    <!-- 为什么用 starter：自动装配 RedisConnectionFactory + StringRedisTemplate；jeepay-core 只有 RedisUtil（轻封装），不含 Spring Data Redis API -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-redis</artifactId>
+    </dependency>
+
   </dependencies>
 
   <build>
